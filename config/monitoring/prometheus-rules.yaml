@@ -1,0 +1,496 @@
+# Extended Prometheus Rules for MLOps
+# Extended Prometheus rules for MLOps system
+
+# For kube-prometheus-stack (common in newer installations):
+apiVersion: monitoring.coreos.com/v1
+# For older versions, you might need:
+# apiVersion: monitoring.coreos.com/v1alpha1
+kind: PrometheusRule
+metadata:
+  name: mlops-extended-rules
+  namespace: monitoring
+  labels:
+    prometheus: kube-prometheus
+    role: alert-rules
+spec:
+  groups:
+  # Recording rules for better performance
+  - name: mlops.recording.rules
+    interval: 30s
+    rules:
+    # Request rate recording rules
+    - record: mlops:http_requests:rate5m
+      expr: rate(http_requests_total{job="mlops-sentiment"}[5m])
+
+    - record: mlops:http_requests:rate1h
+      expr: rate(http_requests_total{job="mlops-sentiment"}[1h])
+
+    # Error rate recording rules
+    - record: mlops:http_errors:rate5m
+      expr: rate(http_requests_total{job="mlops-sentiment",status=~"5.."}[5m])
+
+    - record: mlops:http_error_rate:ratio5m
+      expr: mlops:http_errors:rate5m / mlops:http_requests:rate5m
+
+    # Latency recording rules
+    - record: mlops:http_request_duration:p50
+      expr: histogram_quantile(0.50, rate(http_request_duration_seconds_bucket{job="mlops-sentiment"}[5m]))
+
+    - record: mlops:http_request_duration:p95
+      expr: histogram_quantile(0.95, rate(http_request_duration_seconds_bucket{job="mlops-sentiment"}[5m]))
+
+    - record: mlops:http_request_duration:p99
+      expr: histogram_quantile(0.99, rate(http_request_duration_seconds_bucket{job="mlops-sentiment"}[5m]))
+
+    # ML inference recording rules
+    - record: mlops:inference_duration:avg5m
+      expr: rate(mlops_inference_duration_seconds_sum{job="mlops-sentiment"}[5m]) / rate(mlops_inference_duration_seconds_count{job="mlops-sentiment"}[5m])
+
+    - record: mlops:prediction_confidence:avg5m
+      expr: rate(mlops_prediction_confidence_sum{job="mlops-sentiment"}[5m]) / rate(mlops_prediction_confidence_count{job="mlops-sentiment"}[5m])
+
+    # Resource utilization recording rules
+    - record: mlops:cpu_usage:avg5m
+      expr: avg(rate(container_cpu_usage_seconds_total{pod=~"mlops-sentiment-.*"}[5m])) by (pod)
+
+    - record: mlops:memory_usage:avg5m
+      expr: avg(container_memory_usage_bytes{pod=~"mlops-sentiment-.*"}) by (pod)
+
+  # SLI/SLO based alerting rules
+  - name: mlops.sli.rules
+    interval: 30s
+    rules:
+    # Availability SLI (99.9% target)
+    - alert: MLOpsSLOAvailabilityBreach
+      expr: (1 - mlops:http_error_rate:ratio5m) * 100 < 99.9
+      for: 5m
+      labels:
+        severity: critical
+        service: mlops-sentiment
+        slo: availability
+      annotations:
+        summary: "SLO breach: Availability below 99.9%"
+        description: "Service availability is {{ $value }}%, which is below the 99.9% SLO target"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#slo-availability"
+
+    # Latency SLI (95% of requests < 200ms)
+    - alert: MLOpsSLOLatencyBreach
+      expr: mlops:http_request_duration:p95 > 0.2
+      for: 10m
+      labels:
+        severity: warning
+        service: mlops-sentiment
+        slo: latency
+      annotations:
+        summary: "SLO breach: 95th percentile latency above 200ms"
+        description: "95th percentile latency is {{ $value }}s, which exceeds the 200ms SLO target"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#slo-latency"
+
+    # ML Quality SLI (average confidence > 80%)
+    - alert: MLOpsSLOQualityBreach
+      expr: mlops:prediction_confidence:avg5m < 0.8
+      for: 15m
+      labels:
+        severity: warning
+        service: mlops-sentiment
+        slo: quality
+        component: ml-model
+      annotations:
+        summary: "SLO breach: ML prediction confidence below 80%"
+        description: "Average prediction confidence is {{ $value }}, which is below the 80% SLO target"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#slo-quality"
+
+  # Business logic alerting rules
+  - name: mlops.business.rules
+    interval: 1m
+    rules:
+    # Traffic pattern anomalies
+    - alert: MLOpsTrafficSpike
+      expr: mlops:http_requests:rate5m > 5 * mlops:http_requests:rate1h
+      for: 2m
+      labels:
+        severity: warning
+        service: mlops-sentiment
+        component: traffic
+      annotations:
+        summary: "Unusual traffic spike detected"
+        description: "Current request rate ({{ $value }}) is 5x higher than the hourly average"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#traffic-spike"
+
+    - alert: MLOpsTrafficDrop
+      expr: mlops:http_requests:rate5m < 0.2 * mlops:http_requests:rate1h and mlops:http_requests:rate1h > 0.1
+      for: 10m
+      labels:
+        severity: warning
+        service: mlops-sentiment
+        component: traffic
+      annotations:
+        summary: "Significant traffic drop detected"
+        description: "Current request rate ({{ $value }}) is 80% lower than the hourly average"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#traffic-drop"
+
+    # ML model drift detection
+    - alert: MLOpsPredictionPatternChange
+      expr: |
+        abs(
+          avg_over_time(mlops:prediction_confidence:avg5m[1h]) -
+          avg_over_time(mlops:prediction_confidence:avg5m[1h] offset 24h)
+        ) > 0.1
+      for: 30m
+      labels:
+        severity: warning
+        service: mlops-sentiment
+        component: ml-quality
+      annotations:
+        summary: "ML prediction pattern change detected"
+        description: "Average prediction confidence has changed by {{ $value }} compared to 24h ago"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#model-drift"
+
+    # Resource efficiency alerts
+    - alert: MLOpsResourceInefficiency
+      expr: mlops:cpu_usage:avg5m < 0.1 and kube_deployment_status_replicas{deployment="mlops-sentiment"} > 2
+      for: 30m
+      labels:
+        severity: info
+        service: mlops-sentiment
+        component: efficiency
+      annotations:
+        summary: "Low resource utilization detected"
+        description: "CPU usage is {{ $value }}% with {{ query "kube_deployment_status_replicas{deployment=\"mlops-sentiment\"}" }} replicas"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#resource-efficiency"
+
+  # Infrastructure alerting rules
+  - name: mlops.infrastructure.rules
+    interval: 30s
+    rules:
+    # Kubernetes cluster health
+    - alert: MLOpsNodeNotReady
+      expr: kube_node_status_condition{condition="Ready",status="true"} == 0
+      for: 5m
+      labels:
+        severity: critical
+        service: mlops-sentiment
+        component: infrastructure
+      annotations:
+        summary: "Kubernetes node not ready"
+        description: "Node {{ $labels.node }} has been not ready for more than 5 minutes"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#node-not-ready"
+
+    # Persistent Volume issues
+    - alert: MLOpsPVCPendingOrLost
+      expr: kube_persistentvolumeclaim_status_phase{phase=~"Pending|Lost"} == 1
+      for: 5m
+      labels:
+        severity: warning
+        service: mlops-sentiment
+        component: storage
+      annotations:
+        summary: "PVC in problematic state"
+        description: "PVC {{ $labels.persistentvolumeclaim }} in namespace {{ $labels.namespace }} is in {{ $labels.phase }} state"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#pvc-issues"
+
+    # Network policy violations (if monitoring is available)
+    - alert: MLOpsNetworkPolicyViolation
+      expr: increase(networkpolicy_drop_count_total{pod=~"mlops-sentiment-.*"}[5m]) > 10
+      for: 2m
+      labels:
+        severity: warning
+        service: mlops-sentiment
+        component: security
+      annotations:
+        summary: "Network policy violations detected"
+        description: "{{ $value }} network policy violations detected for MLOps pods in the last 5 minutes"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#network-policy"
+
+  # Predictive alerting rules
+  - name: mlops.predictive.rules
+    interval: 1m
+    rules:
+    # Predict disk space exhaustion
+    - alert: MLOpsDiskSpaceExhaustionPredicted
+      expr: |
+        predict_linear(
+          node_filesystem_avail_bytes{fstype!="tmpfs"}[1h],
+          4 * 3600
+        ) < 0
+      for: 5m
+      labels:
+        severity: warning
+        service: mlops-sentiment
+        component: storage
+      annotations:
+        summary: "Disk space exhaustion predicted"
+        description: "Disk {{ $labels.device }} on {{ $labels.instance }} is predicted to run out of space in 4 hours"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#disk-space"
+
+    # Predict memory exhaustion
+    - alert: MLOpsMemoryExhaustionPredicted
+      expr: |
+        predict_linear(
+          container_memory_usage_bytes{pod=~"mlops-sentiment-.*"}[30m],
+          2 * 3600
+        ) > container_spec_memory_limit_bytes{pod=~"mlops-sentiment-.*"}
+      for: 10m
+      labels:
+        severity: warning
+        service: mlops-sentiment
+        component: resources
+      annotations:
+        summary: "Memory exhaustion predicted"
+        description: "Pod {{ $labels.pod }} is predicted to exceed memory limit in 2 hours"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#memory-prediction"
+
+  # Vault secrets management alerting rules
+  - name: vault.secrets.rules
+    interval: 30s
+    rules:
+    # Vault health and availability
+    - alert: VaultDown
+      expr: up{job="vault"} == 0
+      for: 2m
+      labels:
+        severity: critical
+        service: vault
+        component: availability
+      annotations:
+        summary: "Vault server is down"
+        description: "Vault server {{ $labels.instance }} has been down for more than 2 minutes"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#vault-down"
+
+    - alert: VaultSealed
+      expr: vault_core_unsealed == 0
+      for: 1m
+      labels:
+        severity: critical
+        service: vault
+        component: security
+      annotations:
+        summary: "Vault is sealed"
+        description: "Vault server {{ $labels.instance }} is sealed and cannot serve requests"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#vault-sealed"
+
+    # Authentication and authorization
+    - alert: VaultAuthenticationFailures
+      expr: increase(vault_authentication_failures_total[5m]) > 5
+      for: 1m
+      labels:
+        severity: critical
+        service: vault
+        component: security
+      annotations:
+        summary: "High number of Vault authentication failures"
+        description: "{{ $value }} authentication failures detected in the last 5 minutes"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#vault-auth-failures"
+
+    - alert: VaultPolicyViolations
+      expr: increase(vault_policy_violations_total[5m]) > 0
+      for: 1m
+      labels:
+        severity: warning
+        service: vault
+        component: security
+      annotations:
+        summary: "Vault policy violations detected"
+        description: "Policy violations detected for policy {{ $labels.policy_name }}"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#vault-policy-violations"
+
+    # Secret access patterns
+    - alert: VaultUnusualSecretAccess
+      expr: increase(vault_secret_access_total{status="success"}[1h]) > 1000
+      for: 5m
+      labels:
+        severity: warning
+        service: vault
+        component: security
+      annotations:
+        summary: "Unusual spike in secret access"
+        description: "{{ $value }} secret accesses detected in the last hour for {{ $labels.secret_key }}"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#vault-secret-access"
+
+    - alert: VaultSecretAccessErrors
+      expr: increase(vault_secret_access_total{status="failure"}[5m]) > 10
+      for: 2m
+      labels:
+        severity: warning
+        service: vault
+        component: availability
+      annotations:
+        summary: "High number of secret access errors"
+        description: "{{ $value }} secret access errors detected in the last 5 minutes"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#vault-secret-errors"
+
+    # Token management
+    - alert: VaultTokenRenewalFailures
+      expr: increase(vault_token_renewals_total[5m]) > 5
+      for: 2m
+      labels:
+        severity: warning
+        service: vault
+        component: security
+      annotations:
+        summary: "Vault token renewal issues"
+        description: "Multiple token renewal failures detected"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#vault-token-renewal"
+
+    # Secret rotation monitoring
+    - alert: VaultSecretsExpiringSoon
+      expr: vault_secret_expiration_seconds < 7 * 24 * 3600  # 7 days
+      for: 1h
+      labels:
+        severity: warning
+        service: vault
+        component: lifecycle
+      annotations:
+        summary: "Secrets expiring within 7 days"
+        description: "Secret {{ $labels.secret_key }} expires in {{ $value | humanizeDuration }}"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#vault-secret-expiry"
+
+    - alert: VaultSecretRotationWarnings
+      expr: increase(vault_secret_rotation_warnings_total[1h]) > 0
+      for: 1m
+      labels:
+        severity: info
+        service: vault
+        component: lifecycle
+      annotations:
+        summary: "Secret rotation warnings generated"
+        description: "Secret rotation warnings detected for secrets approaching expiry"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#vault-rotation-warnings"
+
+    # Performance monitoring
+    - alert: VaultHighLatency
+      expr: histogram_quantile(0.95, rate(vault_secret_access_duration_seconds_bucket[5m])) > 2
+      for: 5m
+      labels:
+        severity: warning
+        service: vault
+        component: performance
+      annotations:
+        summary: "Vault experiencing high latency"
+        description: "95th percentile secret access latency is {{ $value }}s"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#vault-latency"
+
+    # Cache performance
+    - alert: VaultCacheInefficiency
+      expr: rate(vault_secret_cache_misses_total[5m]) / rate(vault_secret_access_total[5m]) > 0.8
+      for: 10m
+      labels:
+        severity: info
+        service: vault
+        component: performance
+      annotations:
+        summary: "High cache miss rate"
+        description: "Cache miss rate is {{ $value | percent }}, consider adjusting cache TTL"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#vault-cache"
+
+  # Alertmanager health monitoring
+  - name: alertmanager.health.rules
+    interval: 30s
+    rules:
+    # Dead Man's Switch - ensures alerting pipeline is functional
+    # This alert should ALWAYS be firing
+    - alert: Watchdog
+      expr: vector(1)
+      labels:
+        severity: none
+        service: alertmanager
+        component: health
+      annotations:
+        summary: "Alertmanager health check"
+        description: "This is a Watchdog alert that should always be firing. If you stop receiving this alert, it means the alerting pipeline is broken."
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#watchdog"
+
+    # Alert if Alertmanager is down
+    - alert: AlertmanagerDown
+      expr: up{job="alertmanager"} == 0
+      for: 5m
+      labels:
+        severity: critical
+        service: alertmanager
+        component: availability
+      annotations:
+        summary: "Alertmanager is down"
+        description: "Alertmanager has been down for more than 5 minutes. No alerts will be delivered."
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#alertmanager-down"
+
+    # Alert if too many notifications are failing
+    - alert: AlertmanagerNotificationsFailing
+      expr: rate(alertmanager_notifications_failed_total[5m]) > 0.1
+      for: 5m
+      labels:
+        severity: warning
+        service: alertmanager
+        component: notifications
+      annotations:
+        summary: "High rate of failed alert notifications"
+        description: "{{ $value | humanize }} notifications per second are failing for {{ $labels.integration }}"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#alertmanager-notifications"
+
+  # Redis security and health monitoring
+  - name: redis.security.rules
+    interval: 30s
+    rules:
+    # Redis authentication failures
+    - alert: RedisAuthFailures
+      expr: rate(redis_rejected_connections_total[5m]) > 5
+      for: 2m
+      labels:
+        severity: security
+        service: redis
+        component: security
+      annotations:
+        summary: "Redis authentication failures detected"
+        description: "{{ $value | humanize }} authentication failures per second on Redis instance {{ $labels.instance }}. Potential unauthorized access attempt."
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#redis-auth-failures"
+
+    # Redis down
+    - alert: RedisDown
+      expr: up{job="redis"} == 0
+      for: 1m
+      labels:
+        severity: critical
+        service: redis
+        component: availability
+      annotations:
+        summary: "Redis instance is down"
+        description: "Redis instance {{ $labels.instance }} has been down for more than 1 minute"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#redis-down"
+
+    # Redis high memory usage
+    - alert: RedisHighMemoryUsage
+      expr: redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+      for: 5m
+      labels:
+        severity: warning
+        service: redis
+        component: resources
+      annotations:
+        summary: "Redis memory usage is high"
+        description: "Redis instance {{ $labels.instance }} is using {{ $value | humanizePercentage }} of available memory"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#redis-memory"
+
+    # Redis eviction rate high
+    - alert: RedisHighEvictionRate
+      expr: rate(redis_evicted_keys_total[5m]) > 10
+      for: 5m
+      labels:
+        severity: warning
+        service: redis
+        component: performance
+      annotations:
+        summary: "High Redis key eviction rate"
+        description: "Redis is evicting {{ $value | humanize }} keys per second on {{ $labels.instance }}. Consider increasing maxmemory."
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#redis-eviction"
+
+    # Redis connection exhaustion
+    - alert: RedisConnectionsNearLimit
+      expr: redis_connected_clients / redis_config_maxclients > 0.8
+      for: 5m
+      labels:
+        severity: warning
+        service: redis
+        component: connections
+      annotations:
+        summary: "Redis connections near limit"
+        description: "Redis instance {{ $labels.instance }} is using {{ $value | humanizePercentage }} of max connections"
+        runbook_url: "https://github.com/rayenx2/MoodGuess/wiki/runbooks#redis-connections"

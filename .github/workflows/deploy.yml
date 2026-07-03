@@ -1,0 +1,170 @@
+name: Deploy to Kubernetes (Emergency)
+
+# Manual Helm-based deployment for emergency use, bypassing the normal CI/CD pipeline.
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy (EMERGENCY ONLY)"
+        required: true
+        type: choice
+        options:
+          - development
+          - staging
+          - production
+      image_tag:
+        description: "Image tag to deploy"
+        required: true
+        type: string
+      emergency:
+        description: "Confirm this is an emergency deployment (type 'yes')"
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      environment:
+        description: "Environment to deploy"
+        required: true
+        type: string
+      image_tag:
+        description: "Image tag to deploy"
+        required: true
+        type: string
+      emergency:
+        description: "Confirm this is an emergency deployment (type 'yes')"
+        required: false
+        type: string
+        default: "yes"
+    secrets:
+      KUBE_CONFIG:
+        required: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment }} (Emergency)
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    if: ${{ inputs.emergency == 'yes' }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Warning - Emergency Deployment
+        run: |
+          echo "⚠️⚠️⚠️ WARNING: EMERGENCY DEPLOYMENT ⚠️⚠️⚠️"
+          echo ""
+          echo "This bypasses the normal CI/CD pipeline. Use only when necessary."
+          echo ""
+          echo "Proceeding in 10 seconds..."
+          sleep 10
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@901a10e89ea615cf61f57ac05cecdf23e7de06d8 # v3
+        with:
+          version: "v1.28.0"
+
+      - name: Install Helm
+        uses: azure/setup-helm@5119fcb9089d432beecbf79bb2c7915207344b78 # v3
+        with:
+          version: "v3.13.0"
+
+      - name: Setup kubectl config
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+          export KUBECONFIG=$HOME/.kube/config
+          kubectl cluster-info
+
+      - name: Determine deployment parameters
+        id: params
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          case "$ENVIRONMENT" in
+            development)
+              echo "namespace=mlops-sentiment-dev" >> $GITHUB_OUTPUT
+              echo "replicas=1" >> $GITHUB_OUTPUT
+              echo "values_file=values-development.yaml" >> $GITHUB_OUTPUT
+              ;;
+            staging)
+              echo "namespace=mlops-sentiment-staging" >> $GITHUB_OUTPUT
+              echo "replicas=2" >> $GITHUB_OUTPUT
+              echo "values_file=values-staging.yaml" >> $GITHUB_OUTPUT
+              ;;
+            production)
+              echo "namespace=mlops-sentiment" >> $GITHUB_OUTPUT
+              echo "replicas=3" >> $GITHUB_OUTPUT
+              echo "values_file=values-production.yaml" >> $GITHUB_OUTPUT
+              ;;
+          esac
+
+      - name: Deploy with Helm
+        env:
+          NAMESPACE: ${{ steps.params.outputs.namespace }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          REPLICAS: ${{ steps.params.outputs.replicas }}
+          VALUES_FILE: ${{ steps.params.outputs.values_file }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          export KUBECONFIG=$HOME/.kube/config
+
+          helm upgrade --install mlops-sentiment ./helm/mlops-sentiment \
+            --namespace "$NAMESPACE" \
+            --create-namespace \
+            --set image.repository="$REGISTRY/$IMAGE_NAME" \
+            --set image.tag="$IMAGE_TAG" \
+            --set replicaCount="$REPLICAS" \
+            --values ./helm/mlops-sentiment/values.yaml \
+            --values "./helm/mlops-sentiment/$VALUES_FILE" \
+            --wait --timeout=10m
+
+          echo "✅ Emergency deployment to $ENVIRONMENT completed"
+
+      - name: Run health checks
+        env:
+          NAMESPACE: ${{ steps.params.outputs.namespace }}
+        run: |
+          export KUBECONFIG=$HOME/.kube/config
+
+          echo "Waiting for pods to be ready..."
+          kubectl wait --for=condition=ready pod \
+            -l app.kubernetes.io/name=mlops-sentiment \
+            -n "$NAMESPACE" \
+            --timeout=300s
+
+          echo "Pod status:"
+          kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/name=mlops-sentiment
+
+      - name: Post-deployment notice
+        env:
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          echo "⚠️ Emergency Deployment Complete"
+          echo "Image $IMAGE_TAG is now live in $ENVIRONMENT."
+
+      - name: Deployment summary
+        env:
+          ENVIRONMENT: ${{ inputs.environment }}
+          NAMESPACE: ${{ steps.params.outputs.namespace }}
+          IMAGE_TAG: ${{ inputs.image_tag }}
+          REPLICAS: ${{ steps.params.outputs.replicas }}
+        run: |
+          echo "## Deployment Summary - $ENVIRONMENT" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: $ENVIRONMENT" >> $GITHUB_STEP_SUMMARY
+          echo "- **Namespace**: $NAMESPACE" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: $REGISTRY/$IMAGE_NAME:$IMAGE_TAG" >> $GITHUB_STEP_SUMMARY
+          echo "- **Replicas**: $REPLICAS" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployed Resources" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl get all -n "$NAMESPACE" -l app.kubernetes.io/name=mlops-sentiment >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

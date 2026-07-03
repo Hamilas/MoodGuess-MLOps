@@ -1,0 +1,96 @@
+# ==============================================================================
+# Core Dependencies - Essential for basic application functionality
+# ==============================================================================
+
+# Web Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+orjson>=3.9.10
+
+
+# Data Validation & Configuration
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+python-dotenv==1.0.0
+
+# HTTP Clients
+requests==2.31.0
+httpx==0.25.1
+
+# Logging & Monitoring
+structlog==23.2.0
+prometheus-client==0.19.0
+
+# Machine Learning & Model Inference
+torch==2.6.0
+transformers==4.33.0
+onnxruntime==1.17.0
+onnx==1.15.0
+
+# Secrets Management
+hvac>=1.2.0
+
+# Kubernetes Integration
+kubernetes>=27.0.0
+
+# Kafka Streaming
+kafka-python==2.0.2
+confluent-kafka==2.3.0
+
+# Redis Caching
+redis==5.0.1
+hiredis==2.2.3
+
+# System Monitoring
+psutil==5.9.6
+
+# Feature Engineering & NLP
+nltk==3.8.1
+textstat==0.7.3
+
+# ==============================================================================
+# Optional MLOps Features
+# ==============================================================================
+
+# Distributed Tracing (OpenTelemetry)
+opentelemetry-api==1.21.0
+opentelemetry-sdk==1.21.0
+opentelemetry-instrumentation-fastapi==0.42b0
+opentelemetry-instrumentation-httpx==0.42b0
+opentelemetry-instrumentation-requests==0.42b0
+opentelemetry-instrumentation-redis==0.42b0
+opentelemetry-instrumentation-logging==0.42b0
+opentelemetry-exporter-jaeger==1.21.0
+opentelemetry-exporter-zipkin==1.21.0
+opentelemetry-exporter-otlp==1.21.0
+
+# MLflow Model Registry & Experiment Tracking
+mlflow==2.9.2
+
+# Model Explainability
+shap==0.44.0
+captum==0.7.0
+
+# Drift Detection & Data Quality
+# evidently is intentionally NOT pinned here: evidently==0.4.11 requires
+# pydantic<2, which conflicts with fastapi/pydantic-settings (pydantic>=2.5.0)
+# used throughout the rest of this project. Drift detection already degrades
+# gracefully (see app/services/drift_detection.py) when evidently is absent.
+# Install it in an isolated environment only if you need that feature.
+scipy==1.11.4
+pandas==2.1.4
+
+# Data Format Support
+pyarrow==14.0.1
+
+# ==============================================================================
+# Notes:
+# ==============================================================================
+# - For cloud-specific dependencies, install:
+#   * AWS: pip install -r requirements-aws.txt
+#   * GCP: pip install -r requirements-gcp.txt
+#   * Azure: pip install -r requirements-azure.txt
+# - For development tools: pip install -r requirements-dev.txt
+# - For testing: pip install -r requirements-test.txt
+# - For ONNX-optimized deployment: pip install -r requirements-onnx.txt
+# ==============================================================================

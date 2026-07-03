@@ -1,0 +1,18 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'moodguess-local'
+    environment: 'local'
+
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+
+  # MoodGuess-MLOps sentiment API
+  - job_name: 'moodguess-sentiment'
+    metrics_path: '/metrics'
+    static_configs:
+      - targets: ['sentiment-api:8000']

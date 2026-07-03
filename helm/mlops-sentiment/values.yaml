@@ -1,0 +1,677 @@
+# Default values for mlops-sentiment
+# This is a YAML-formatted file.
+
+# Global settings
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: ""
+
+# Namespace settings
+namespace:
+  create: true
+  name: "mlops"
+  annotations: {}
+
+# Application settings
+app:
+  name: mlops-sentiment
+  version: "1.0.0"
+
+# HashiCorp Vault integration
+vault:
+  enabled: false
+  address: "http://vault.vault-system:8200"
+  role: "mlops-sentiment"
+  namespace: "mlops"
+  secretsPath: "mlops-sentiment"
+  auth:
+    method: kubernetes
+    path: "kubernetes"
+  serviceAccount:
+    create: true
+    annotations: {}
+  agent:
+    enabled: true
+    image: "hashicorp/vault:1.15.0"
+    resources:
+      limits:
+        cpu: 100m
+        memory: 128Mi
+      requests:
+        cpu: 50m
+        memory: 64Mi
+  # Secret rotation settings
+  rotation:
+    enabled: true
+    schedule: "0 0 * * 0"  # Weekly on Sunday at midnight
+    warningThresholdDays: 7  # Warn when secrets expire within 7 days
+    autoRotate: false  # Set to true for automatic rotation
+
+  # Enhanced secret management
+  secrets:
+    # KV v2 secrets engine paths
+    kv:
+      apiKey: "mlops-sentiment/api_key"
+      apiKeys: "mlops-sentiment/api-keys"
+      database: "mlops-sentiment/database"
+      mlflow: "mlops-sentiment/mlflow"
+      monitoring: "mlops-sentiment/monitoring"
+      cloud: "mlops-sentiment/cloud"
+
+    # Dynamic secrets engines
+    dynamic:
+      database:
+        enabled: false
+        mountPath: "database"
+        role: "readonly"
+      aws:
+        enabled: false
+        mountPath: "aws"
+        role: "readonly"
+      azure:
+        enabled: false
+        mountPath: "azure"
+        role: "readonly"
+      gcp:
+        enabled: false
+        mountPath: "gcp"
+        role: "readonly"
+
+image:
+  registry: ghcr.io
+  repository: rayenx2/mlops-sentiment
+  tag: "latest"
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# Model Persistence Configuration (160x cold-start improvement: 8s → 50ms)
+modelPersistence:
+  # Enable model persistence for fast loading
+  enabled: true
+
+  # PersistentVolume configuration
+  size: 5Gi
+  storageClassName: ""  # Use default storage class or specify (e.g., "fast-ssd")
+  volumeName: ""  # Optional: specify pre-created PV name
+
+  # Create PersistentVolume (for manual provisioning)
+  createPV: false
+
+  # Storage backend options (choose one)
+  # NFS storage
+  nfs:
+    server: ""
+    path: "/models"
+
+  # HostPath (for single-node testing only)
+  hostPath: ""
+
+  # CSI driver (for cloud providers)
+  csi:
+    driver: ""  # e.g., "efs.csi.aws.com", "file.csi.azure.com"
+    volumeHandle: ""
+    volumeAttributes: {}
+
+  # Init Container for model pre-loading
+  initContainer:
+    enabled: true
+    image: python:3.11-slim
+    pullPolicy: IfNotPresent
+    modelName: "distilbert-base-uncased-finetuned-sst-2-english"
+    enableOnnx: "true"
+
+    # Resource limits for init container
+    resources:
+      limits:
+        cpu: 2000m
+        memory: 4Gi
+      requests:
+        cpu: 1000m
+        memory: 2Gi
+
+# Deployment configuration
+deployment:
+  replicaCount: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+
+  # Resource limits and requests
+  # Optimized based on ONNX inference patterns:
+  # - CPU requests set to average usage (allows bin-packing)
+  # - CPU limits slightly higher for bursts (startup, traffic spikes)
+  # - Memory requests = limits to avoid OOM kills and ensure stable scheduling
+  resources:
+    limits:
+      cpu: 1000m      # P95 usage + buffer for bursts
+      memory: 768Mi   # Equal to requests to avoid OOM kills
+    requests:
+      cpu: 400m       # Average usage (~40% of limit) for bin-packing
+      memory: 768Mi   # Equal to limits for stable scheduling
+
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: http
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+  # Environment variables
+  env:
+    MLOPS_DEBUG: "false"
+    MLOPS_LOG_LEVEL: "INFO"
+    MLOPS_ENABLE_METRICS: "true"
+    MLOPS_PORT: "8000"
+
+  # Secrets (will be created from values)
+  secrets:
+    MLOPS_API_KEY: ""  # Set this in production
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8000
+  annotations: {}
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+  hosts:
+    - host: mlops-sentiment.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: mlops-sentiment-tls
+      hosts:
+        - mlops-sentiment.local
+
+# Horizontal Pod Autoscaler
+hpa:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 80
+
+# Pod Disruption Budget
+pdb:
+  enabled: true
+  minAvailable: 1
+
+# ServiceAccount
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# Security Context
+podSecurityContext:
+  fsGroup: 1000
+  runAsNonRoot: true
+  runAsUser: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: true
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# Node selection
+nodeSelector: {}
+tolerations: []
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      podAffinityTerm:
+        labelSelector:
+          matchExpressions:
+          - key: app.kubernetes.io/name
+            operator: In
+            values:
+            - mlops-sentiment
+        topologyKey: kubernetes.io/hostname
+
+# GPU Configuration for High-Performance Inference
+gpu:
+  # Enable GPU support for the deployment
+  enabled: false
+
+  # Number of GPUs to request per pod
+  # For multi-GPU support, set this to the number of GPUs you want
+  count: 1
+
+  # GPU vendor (nvidia, amd, intel)
+  vendor: nvidia
+
+  # GPU type/model - used for node selection
+  # Examples: nvidia-tesla-t4, nvidia-tesla-v100, nvidia-a100, nvidia-h100
+  type: nvidia-tesla-t4
+
+  # Multi-GPU strategy
+  multiGpu:
+    # Enable multi-GPU support (data parallelism across GPUs)
+    enabled: false
+
+    # Number of GPUs per pod for multi-GPU workloads
+    gpusPerPod: 2
+
+    # GPU topology preference (prefer same node, same NUMA, etc.)
+    topology: "best-effort"  # Options: "best-effort", "single-numa-node", "preferred"
+
+    # Load balancing strategy
+    loadBalancing:
+      # Strategy: round-robin, least-loaded, gpu-utilization-based
+      strategy: "gpu-utilization-based"
+
+      # Enable GPU memory-based scheduling
+      memoryAware: true
+
+  # GPU resource requests and limits
+  # Optimized based on GPU inference patterns:
+  # - CPU requests: Average usage for bin-packing (GPU workloads are GPU-bound)
+  # - CPU limits: Higher for model loading and preprocessing
+  # - Memory requests = limits to avoid OOM kills
+  resources:
+    limits:
+      cpu: 4000m      # Higher for model loading/preprocessing bursts
+      memory: 16Gi    # Equal to requests to avoid OOM kills
+      nvidia.com/gpu: 1  # Will be overridden by gpu.count or multiGpu.gpusPerPod
+    requests:
+      cpu: 2000m      # Average usage (~50% of limit) for bin-packing
+      memory: 16Gi    # Equal to limits for stable scheduling
+      nvidia.com/gpu: 1
+
+  # GPU-specific environment variables
+  env:
+    # CUDA settings
+    CUDA_VISIBLE_DEVICES: "all"  # Or specific GPU IDs like "0,1"
+    NVIDIA_VISIBLE_DEVICES: "all"
+    NVIDIA_DRIVER_CAPABILITIES: "compute,utility"
+
+    # GPU memory management
+    GPU_MEMORY_FRACTION: "0.9"  # Fraction of GPU memory to use (0.0-1.0)
+    PYTORCH_CUDA_ALLOC_CONF: "max_split_size_mb:512"
+
+    # Model optimization settings
+    ENABLE_GPU_OPTIMIZATION: "true"
+    ENABLE_TORCH_COMPILE: "false"  # PyTorch 2.0+ compilation (experimental)
+    ENABLE_TENSORRT: "false"  # TensorRT optimization (requires TensorRT)
+
+    # Batch processing for GPU
+    GPU_BATCH_SIZE: "64"  # Larger batches for GPU efficiency
+    GPU_MAX_BATCH_SIZE: "128"
+    GPU_DYNAMIC_BATCHING: "true"
+
+    # Multi-GPU settings
+    MULTI_GPU_ENABLED: "false"
+    GPU_COUNT: "1"
+    DISTRIBUTED_BACKEND: "nccl"  # NCCL for NVIDIA, gloo for CPU fallback
+
+  # Node selection for GPU nodes
+  nodeSelector:
+    accelerator: nvidia-tesla-t4  # Will be set based on gpu.type
+    # Optional: specify cloud provider GPU node pools
+    # cloud.google.com/gke-accelerator: nvidia-tesla-t4
+    # eks.amazonaws.com/accelerator: nvidia-tesla-t4
+    # kubernetes.azure.com/accelerator: nvidia-tesla-t4
+
+  # Tolerations for GPU nodes
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+    - key: gpu
+      operator: Equal
+      value: "true"
+      effect: NoSchedule
+
+  # GPU affinity rules
+  affinity:
+    # Node affinity for GPU placement
+    nodeAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+        nodeSelectorTerms:
+        - matchExpressions:
+          - key: accelerator
+            operator: In
+            values:
+            - nvidia-tesla-t4
+            - nvidia-tesla-v100
+            - nvidia-a100
+
+      # Prefer nodes with higher GPU count for multi-GPU
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        preference:
+          matchExpressions:
+          - key: gpu-count
+            operator: Gt
+            values:
+            - "1"
+
+    # Pod anti-affinity to spread GPU pods across nodes
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchExpressions:
+            - key: app.kubernetes.io/name
+              operator: In
+              values:
+              - mlops-sentiment
+            - key: gpu-enabled
+              operator: In
+              values:
+              - "true"
+          topologyKey: kubernetes.io/hostname
+
+  # GPU-specific volumes
+  volumes:
+    # Shared memory for GPU operations (important for multi-GPU)
+    sharedMemory:
+      enabled: true
+      sizeLimit: 4Gi  # Larger for multi-GPU workloads
+
+    # GPU cache directory
+    gpuCache:
+      enabled: true
+      sizeLimit: 8Gi
+
+  # GPU health checks (longer timeouts for GPU initialization)
+  healthChecks:
+    livenessProbe:
+      initialDelaySeconds: 90
+      periodSeconds: 20
+      timeoutSeconds: 10
+      failureThreshold: 5
+
+    readinessProbe:
+      initialDelaySeconds: 60
+      periodSeconds: 15
+      timeoutSeconds: 8
+      failureThreshold: 3
+
+    startupProbe:
+      initialDelaySeconds: 30
+      periodSeconds: 15
+      timeoutSeconds: 10
+      failureThreshold: 40  # Up to 10 minutes for GPU initialization
+
+  # HPA settings for GPU deployments (more conservative)
+  hpa:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 4  # Limited due to GPU cost
+
+    # Custom metrics for GPU-based scaling
+    metrics:
+      - type: Resource
+        resource:
+          name: cpu
+          target:
+            type: Utilization
+            averageUtilization: 80
+      - type: Resource
+        resource:
+          name: memory
+          target:
+            type: Utilization
+            averageUtilization: 85
+      # GPU utilization metric (requires DCGM/GPU metrics exporter)
+      # - type: Pods
+      #   pods:
+      #     metric:
+      #       name: gpu_utilization
+      #     target:
+      #       type: AverageValue
+      #       averageValue: "80"
+
+    # Slower scaling for GPU pods (avoid rapid scaling)
+    behavior:
+      scaleUp:
+        stabilizationWindowSeconds: 180
+        policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+      scaleDown:
+        stabilizationWindowSeconds: 600
+        policies:
+        - type: Pods
+          value: 1
+          periodSeconds: 180
+
+# Network Policy
+networkPolicy:
+  enabled: true
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+      - namespaceSelector:
+          matchLabels:
+            name: ingress-nginx
+      - namespaceSelector:
+          matchLabels:
+            name: monitoring
+      ports:
+      - protocol: TCP
+        port: 8000
+  egress:
+    # Allow DNS
+    - to: []
+      ports:
+      - protocol: UDP
+        port: 53
+    # Allow HTTPS for model downloads
+    - to: []
+      ports:
+      - protocol: TCP
+        port: 443
+    # Allow communication with monitoring
+    - to:
+      - namespaceSelector:
+          matchLabels:
+            name: monitoring
+      ports:
+      - protocol: TCP
+        port: 9090  # Prometheus
+      - protocol: TCP
+        port: 3000  # Grafana
+
+# Monitoring configuration
+monitoring:
+  enabled: true
+  serviceMonitor:
+    enabled: true
+    interval: 30s
+    scrapeTimeout: 10s
+    path: /metrics
+    labels:
+      app: mlops-sentiment
+
+# Prometheus configuration
+prometheus:
+  enabled: true
+  server:
+    persistentVolume:
+      enabled: true
+      size: 10Gi
+    retention: "15d"
+  alertmanager:
+    enabled: true
+    persistentVolume:
+      enabled: true
+      size: 2Gi
+  nodeExporter:
+    enabled: true
+  kubeStateMetrics:
+    enabled: true
+
+# Grafana configuration
+grafana:
+  enabled: true
+  adminPassword: "admin123"  # Change in production!
+  persistence:
+    enabled: true
+    size: 5Gi
+  datasources:
+    datasources.yaml:
+      apiVersion: 1
+      datasources:
+      - name: Prometheus
+        type: prometheus
+        url: http://prometheus-server:80
+        access: proxy
+        isDefault: true
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+      - name: 'default'
+        orgId: 1
+        folder: ''
+        type: file
+        disableDeletion: false
+        editable: true
+        options:
+          path: /var/lib/grafana/dashboards/default
+  dashboards:
+    default:
+      mlops-sentiment:
+        gnetId: 0
+        datasource: Prometheus
+        json: |
+          {
+            "dashboard": {
+              "id": null,
+              "title": "MLOps Sentiment Analysis",
+              "tags": ["mlops", "sentiment"],
+              "timezone": "browser",
+              "panels": [],
+              "time": {
+                "from": "now-1h",
+                "to": "now"
+              },
+              "timepicker": {},
+              "templating": {
+                "list": []
+              },
+              "annotations": {
+                "list": []
+              },
+              "refresh": "30s",
+              "schemaVersion": 30,
+              "version": 1
+            }
+          }
+
+# Alertmanager configuration
+alertmanager:
+  enabled: true
+  config:
+    global:
+      smtp_smarthost: 'localhost:587'
+      smtp_from: 'alerts@mlops-sentiment.local'
+    route:
+      group_by: ['alertname']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 1h
+      receiver: 'web.hook'
+    receivers:
+    - name: 'web.hook'
+      slack_configs:
+      - api_url: 'YOUR_SLACK_WEBHOOK_URL'
+        channel: '#alerts'
+        title: 'MLOps Alert'
+        text: '{{ range .Alerts }}{{ .Annotations.summary }}{{ end }}'
+
+# Istio service mesh configuration
+istio:
+  # Master switch to render Istio resources and annotations
+  enabled: false
+
+  # Label namespace for automatic sidecar injection
+  enableNamespaceInjection: true
+
+  # Optional pod annotations for Istio proxy behavior
+  # Example: hold application start until proxy is ready
+  podAnnotations: {}
+    # proxy.istio.io/config: '{ "holdApplicationUntilProxyStarts": true }'
+
+  # Ingress via Istio Gateway (alternative to standard Ingress)
+  gateway:
+    enabled: false
+    # Namespace/name of the Istio ingress gateway
+    name: istio-system/istio-ingressgateway
+    # Public hosts served by the gateway (required when enabled)
+    hosts: []
+
+  # HTTP routing policies
+  http:
+    timeout: 5s
+    retries:
+      attempts: 3
+      perTryTimeout: 2s
+      retryOn: "5xx,connect-failure,refused-stream,reset"
+
+  # Traffic policy: connection pools and circuit breaking
+  connectionPool:
+    tcp:
+      maxConnections: 100
+    http:
+      http1MaxPendingRequests: 1000
+      maxRequestsPerConnection: 100
+
+  # Outlier detection (passive health checks)
+  outlierDetection:
+    consecutive5xx: 3
+    interval: 5s
+    baseEjectionTime: 30s
+    maxEjectionPercent: 50
+
+  # Mutual TLS between services
+  mtls:
+    # DestinationRule TLS mode (DISABLE | SIMPLE | MUTUAL | ISTIO_MUTUAL)
+    mode: ISTIO_MUTUAL
+    # Enforce STRICT mTLS in the namespace with PeerAuthentication
+    strictNamespace: false
+
+  # Optional fault injection for resilience testing
+  faultInjection:
+    enabled: false
+    abort:
+      httpStatus: 500
+      percentage: 0
+    delay:
+      fixedDelay: 0s
+      percentage: 0

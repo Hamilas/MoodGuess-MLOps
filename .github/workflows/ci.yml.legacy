@@ -1,0 +1,402 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ["v*"]
+  pull_request:
+    branches: [main, develop]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # Code quality checks
+  lint:
+    name: Code Quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip setuptools wheel
+          pip install -r requirements-dev.txt
+
+      - name: Code quality checks
+        run: |
+          black --check app/ tests/
+          isort --check-only app/ tests/
+          ruff check app/ tests/
+          flake8 app/ tests/
+          mypy app/ --ignore-missing-imports --allow-untyped-decorators
+
+  # Unit tests - fast, isolated tests
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+          pip install -r requirements-test.txt
+
+      - name: Run unit tests
+        run: pytest tests/unit/ -v -m "unit" --cov=app --cov-report=xml --cov-report=term-missing
+        env:
+          MLOPS_DEBUG: true
+          MLOPS_LOG_LEVEL: DEBUG
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: unit
+          name: unit-tests
+
+  # Integration tests - test component interactions
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+          pip install -r requirements-test.txt
+
+      - name: Run integration tests
+        run: pytest tests/integration/ -v -m "integration" --cov=app --cov-report=xml --cov-report=term-missing
+        env:
+          MLOPS_DEBUG: true
+          MLOPS_LOG_LEVEL: DEBUG
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: integration
+          name: integration-tests
+
+  # Performance tests - benchmark tests
+  performance-tests:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+          pip install -r requirements-test.txt
+
+      - name: Run performance tests
+        run: pytest tests/performance/ -v -m "performance" --cov=app --cov-report=xml --cov-report=term-missing
+        env:
+          MLOPS_DEBUG: true
+          MLOPS_LOG_LEVEL: DEBUG
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: performance
+          name: performance-tests
+
+  # Coverage verification - enforce 85% threshold on full test suite
+  coverage-check:
+    name: Coverage Verification
+    runs-on: ubuntu-latest
+    needs: [unit-tests, integration-tests, performance-tests]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip setuptools wheel
+          pip install -r requirements.txt
+          pip install -r requirements-test.txt
+
+      - name: Run all tests with coverage threshold
+        run: pytest tests/ -v --cov=app --cov-report=xml --cov-report=term-missing --cov-fail-under=85
+        env:
+          MLOPS_DEBUG: true
+          MLOPS_LOG_LEVEL: DEBUG
+
+      - name: Upload combined coverage
+        uses: codecov/codecov-action@v3
+        with:
+          file: ./coverage.xml
+          flags: combined
+          name: combined-coverage
+          fail_ci_if_error: true
+
+  # Build and push Docker image
+  build:
+    needs: [lint, coverage-check]
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+    outputs:
+      image_tag: ${{ steps.extract_tag.outputs.tag }}
+      image_full: ${{ steps.extract_tag.outputs.full }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login to registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha,prefix={{branch}}-,format=short
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            BUILDTIME=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
+            VERSION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.version'] }}
+            REVISION=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.revision'] }}
+
+      - name: Extract image tag for deployment
+        id: extract_tag
+        run: |
+          # Extract the first tag (branch name or semver)
+          FULL_TAG=$(echo "${{ steps.meta.outputs.tags }}" | head -n1)
+          SHORT_TAG=$(echo "$FULL_TAG" | cut -d':' -f2)
+          echo "tag=$SHORT_TAG" >> $GITHUB_OUTPUT
+          echo "full=$FULL_TAG" >> $GITHUB_OUTPUT
+          echo "Extracted tag: $SHORT_TAG"
+          echo "Full image: $FULL_TAG"
+
+  # Security scan
+  security:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.build.outputs.image_full }}
+          format: "sarif"
+          output: "trivy-results.sarif"
+          severity: "CRITICAL,HIGH"
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@v2
+        if: always()
+        with:
+          sarif_file: "trivy-results.sarif"
+
+      - name: Run Trivy in table mode
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ needs.build.outputs.image_full }}
+          format: "table"
+          severity: "CRITICAL,HIGH"
+
+  # Deploy to environments
+  deploy:
+    needs: [build, security]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    strategy:
+      matrix:
+        environment: [development, staging, production]
+        include:
+          - environment: development
+            branch: develop
+            namespace: mlops-sentiment-dev
+            replicas: 1
+          - environment: staging
+            branch: main
+            namespace: mlops-sentiment-staging
+            replicas: 2
+          - environment: production
+            branch: main
+            namespace: mlops-sentiment
+            replicas: 3
+            requires_tag: true
+    environment: ${{ matrix.environment }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: "v1.28.0"
+
+      - name: Install Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: "v3.13.0"
+
+      - name: Setup kubectl config
+        run: |
+          mkdir -p $HOME/.kube
+          echo "${{ secrets.KUBE_CONFIG }}" | base64 -d > $HOME/.kube/config
+          chmod 600 $HOME/.kube/config
+          export KUBECONFIG=$HOME/.kube/config
+          kubectl cluster-info
+
+      - name: Check deployment conditions
+        id: should_deploy
+        run: |
+          SHOULD_DEPLOY=false
+
+          # Production requires tag
+          if [[ "${{ matrix.environment }}" == "production" ]]; then
+            if [[ "${{ github.ref }}" =~ ^refs/tags/v ]]; then
+              SHOULD_DEPLOY=true
+              echo "Production deployment: tag detected"
+            else
+              echo "Skipping production: requires version tag (v*)"
+            fi
+          # Development requires develop branch
+          elif [[ "${{ matrix.environment }}" == "development" ]]; then
+            if [[ "${{ github.ref }}" == "refs/heads/develop" ]]; then
+              SHOULD_DEPLOY=true
+              echo "Development deployment: develop branch"
+            else
+              echo "Skipping development: requires develop branch"
+            fi
+          # Staging requires main branch
+          elif [[ "${{ matrix.environment }}" == "staging" ]]; then
+            if [[ "${{ github.ref }}" == "refs/heads/main" ]]; then
+              SHOULD_DEPLOY=true
+              echo "Staging deployment: main branch"
+            else
+              echo "Skipping staging: requires main branch"
+            fi
+          fi
+
+          echo "deploy=$SHOULD_DEPLOY" >> $GITHUB_OUTPUT
+
+      - name: Deploy with Helm
+        if: steps.should_deploy.outputs.deploy == 'true'
+        run: |
+          export KUBECONFIG=$HOME/.kube/config
+
+          # Deploy using Helm
+          helm upgrade --install mlops-sentiment ./helm/mlops-sentiment \
+            --namespace ${{ matrix.namespace }} \
+            --create-namespace \
+            --set image.repository=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }} \
+            --set image.tag=${{ needs.build.outputs.image_tag }} \
+            --set replicaCount=${{ matrix.replicas }} \
+            --values ./helm/mlops-sentiment/values.yaml \
+            --values ./helm/mlops-sentiment/values-${{ matrix.environment }}.yaml \
+            --wait --timeout=10m
+
+          echo "✅ Deployment to ${{ matrix.environment }} completed successfully"
+
+      - name: Run health checks
+        if: steps.should_deploy.outputs.deploy == 'true'
+        run: |
+          export KUBECONFIG=$HOME/.kube/config
+
+          echo "Waiting for pods to be ready..."
+          kubectl wait --for=condition=ready pod \
+            -l app.kubernetes.io/name=mlops-sentiment \
+            -n ${{ matrix.namespace }} \
+            --timeout=300s
+
+          # Check pod status
+          echo "Pod status:"
+          kubectl get pods -n ${{ matrix.namespace }} -l app.kubernetes.io/name=mlops-sentiment
+
+          # Get service URL and test health endpoint
+          if kubectl get ingress -n ${{ matrix.namespace }} mlops-sentiment &>/dev/null; then
+            SERVICE_URL=$(kubectl get ingress mlops-sentiment -n ${{ matrix.namespace }} -o jsonpath='{.spec.rules[0].host}')
+            echo "Testing health endpoint: http://$SERVICE_URL/health"
+
+            # Retry health check up to 5 times
+            for i in {1..5}; do
+              if curl -f -s -o /dev/null -w "%{http_code}" http://$SERVICE_URL/health | grep -q "200"; then
+                echo "✅ Health check passed"
+                exit 0
+              fi
+              echo "Attempt $i/5 failed, waiting 10 seconds..."
+              sleep 10
+            done
+
+            echo "⚠️ Health check failed after 5 attempts"
+            exit 1
+          else
+            echo "⚠️ No ingress found, skipping external health check"
+
+            # Internal health check via port-forward
+            echo "Testing internal health check..."
+            POD_NAME=$(kubectl get pod -n ${{ matrix.namespace }} -l app.kubernetes.io/name=mlops-sentiment -o jsonpath='{.items[0].metadata.name}')
+            kubectl exec -n ${{ matrix.namespace }} $POD_NAME -- curl -f http://localhost:8000/health
+          fi
+
+      - name: Deployment summary
+        if: steps.should_deploy.outputs.deploy == 'true'
+        run: |
+          echo "## Deployment Summary - ${{ matrix.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Environment**: ${{ matrix.environment }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Namespace**: ${{ matrix.namespace }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Image**: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ needs.build.outputs.image_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Replicas**: ${{ matrix.replicas }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Deployed Resources" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          kubectl get all -n ${{ matrix.namespace }} -l app.kubernetes.io/name=mlops-sentiment >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
