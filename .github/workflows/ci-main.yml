@@ -1,0 +1,82 @@
+name: Main Branch CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+    tags: ["v*"]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # Code quality checks
+  code-quality:
+    name: Code Quality
+    uses: ./.github/workflows/_reusable-code-quality.yml
+    with:
+      python-version: "3.11"
+
+  # Unit test suite with coverage
+  # NOTE: test-type is "unit", not "all" - the integration suite needs real
+  # Vault/Redis/Kafka infrastructure this runner doesn't have, and running it
+  # alongside unit tests in the same process also caused cross-test pollution
+  # (shared model-singleton state). Coverage threshold reflects real current
+  # coverage (~47%); raise it as the test suite is built out further.
+  test-suite:
+    name: Unit Test Suite
+    uses: ./.github/workflows/_reusable-tests.yml
+    with:
+      python-version: "3.11"
+      test-type: unit
+      coverage-threshold: 45
+
+  # Build Docker image
+  build:
+    name: Build Docker Image
+    needs: [code-quality, test-suite]
+    uses: ./.github/workflows/_reusable-docker-build.yml
+    permissions:
+      contents: read
+      packages: write
+    with:
+      dockerfile: Dockerfile
+      image-name: ${{ github.repository }}
+      push: false
+      platforms: linux/amd64
+
+  # Security scanning
+  security-scan:
+    name: Security Scan
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@c07df6fec6fa692e6fd1200d50aaa1fdd66f03c8 # master
+        with:
+          image-ref: ${{ needs.build.outputs.image-full }}
+          format: "sarif"
+          output: "trivy-results.sarif"
+          severity: "CRITICAL,HIGH"
+
+      - name: Upload Trivy results to GitHub Security
+        uses: github/codeql-action/upload-sarif@4187e74d05793876e9989daffde9c3e66b4acd07 # v3
+        if: always()
+        continue-on-error: true # requires repo Settings > Actions > Workflow permissions: Read and write
+        with:
+          sarif_file: "trivy-results.sarif"
+
+      - name: Run Trivy in table mode
+        uses: aquasecurity/trivy-action@c07df6fec6fa692e6fd1200d50aaa1fdd66f03c8 # master
+        with:
+          image-ref: ${{ needs.build.outputs.image-full }}
+          format: "table"
+          severity: "CRITICAL,HIGH"

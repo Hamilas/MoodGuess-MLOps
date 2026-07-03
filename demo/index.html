@@ -1,0 +1,1031 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MoodGuess-MLOps | Live Demo</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --surface2: #1c2128;
+      --border: #30363d;
+      --accent: #facc15;
+      --accent2: #3fb950;
+      --accent3: #f78166;
+      --accent4: #ffa657;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --pos: #3fb950;
+      --neg: #f85149;
+      --neu: #ffa657;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    /* ─── NAV ─────────────────────────────────────── */
+    nav {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 0.75rem 2rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .logo { font-size: 1.1rem; font-weight: 700; color: var(--accent); display: flex; align-items: center; gap: 8px; }
+    .logo span { color: var(--text); }
+    .logo-icon { width: 30px; height: 30px; border-radius: 8px; background: rgba(250,204,21,0.15); border: 1px solid rgba(250,204,21,0.35); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .nav-links { display: flex; gap: 1.5rem; }
+    .nav-links a { color: var(--muted); text-decoration: none; font-size: 0.9rem; transition: color 0.2s; }
+    .nav-links a:hover { color: var(--text); }
+
+    /* ─── HERO ────────────────────────────────────── */
+    .hero {
+      text-align: center;
+      padding: 4rem 2rem 3rem;
+      max-width: 900px;
+      margin: 0 auto;
+    }
+    .hero-badge {
+      display: inline-block;
+      background: rgba(250,204,21,0.1);
+      border: 1px solid rgba(250,204,21,0.3);
+      color: var(--accent);
+      padding: 0.25rem 0.75rem;
+      border-radius: 99px;
+      font-size: 0.8rem;
+      margin-bottom: 1.25rem;
+    }
+    h1 { font-size: 2.6rem; font-weight: 800; line-height: 1.2; margin-bottom: 1rem; }
+    h1 em { color: var(--accent); font-style: normal; }
+    .hero p { color: var(--muted); font-size: 1.1rem; max-width: 620px; margin: 0 auto 2rem; }
+    .hero-metrics {
+      display: flex;
+      justify-content: center;
+      gap: 2rem;
+      flex-wrap: wrap;
+    }
+    .metric { text-align: center; }
+    .metric .value { font-size: 2rem; font-weight: 700; color: var(--accent); display: block; }
+    .metric .label { font-size: 0.8rem; color: var(--muted); }
+
+    /* ─── TABS ────────────────────────────────────── */
+    .tabs {
+      display: flex;
+      gap: 0;
+      border-bottom: 1px solid var(--border);
+      max-width: 1100px;
+      margin: 2rem auto 0;
+      padding: 0 2rem;
+      overflow-x: auto;
+    }
+    .tab-btn {
+      background: none;
+      border: none;
+      color: var(--muted);
+      padding: 0.75rem 1.25rem;
+      cursor: pointer;
+      font-size: 0.9rem;
+      border-bottom: 2px solid transparent;
+      white-space: nowrap;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .tab-btn:hover { color: var(--text); }
+    .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    .tab-panel { display: none; max-width: 1100px; margin: 0 auto; padding: 2rem; }
+    .tab-panel.active { display: block; }
+
+    /* ─── SENTIMENT DEMO ──────────────────────────── */
+    .demo-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.5rem;
+    }
+    @media (max-width: 700px) { .demo-grid { grid-template-columns: 1fr; } }
+
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.5rem;
+    }
+    .panel h3 { font-size: 0.95rem; color: var(--muted); margin-bottom: 1rem; text-transform: uppercase; letter-spacing: 0.05em; }
+
+    textarea {
+      width: 100%;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      padding: 0.875rem;
+      font-size: 0.95rem;
+      resize: vertical;
+      min-height: 120px;
+      font-family: inherit;
+      line-height: 1.5;
+      transition: border-color 0.2s;
+    }
+    textarea:focus { outline: none; border-color: var(--accent); }
+
+    .example-chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
+    .chip {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 99px;
+      padding: 0.3rem 0.75rem;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: border-color 0.2s, color 0.2s;
+      color: var(--muted);
+    }
+    .chip:hover { border-color: var(--accent); color: var(--text); }
+
+    .analyze-btn {
+      width: 100%;
+      margin-top: 1rem;
+      background: var(--accent);
+      color: #0d1117;
+      border: none;
+      border-radius: 8px;
+      padding: 0.875rem;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.2s, transform 0.1s;
+    }
+    .analyze-btn:hover { opacity: 0.85; transform: translateY(-1px); }
+    .analyze-btn:active { transform: translateY(0); }
+    .analyze-btn.loading { opacity: 0.6; cursor: wait; }
+
+    .result-box {
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+    .sentiment-badge {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 1rem 1.25rem;
+      border-radius: 8px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+    }
+    .sentiment-icon { font-size: 2rem; }
+    .sentiment-label { font-size: 1.5rem; font-weight: 700; }
+    .sentiment-badge.pos .sentiment-label { color: var(--pos); }
+    .sentiment-badge.neg .sentiment-label { color: var(--neg); }
+    .sentiment-badge.neu .sentiment-label { color: var(--neu); }
+
+    .confidence-bar-wrap { width: 100%; }
+    .confidence-label { font-size: 0.85rem; color: var(--muted); margin-bottom: 0.4rem; }
+    .confidence-bar {
+      height: 8px;
+      background: var(--surface2);
+      border-radius: 99px;
+      overflow: hidden;
+    }
+    .confidence-fill {
+      height: 100%;
+      border-radius: 99px;
+      transition: width 0.6s ease;
+      background: var(--pos);
+    }
+
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; }
+    .meta-item {
+      background: var(--surface2);
+      border-radius: 6px;
+      padding: 0.75rem;
+      border: 1px solid var(--border);
+    }
+    .meta-item .mk { font-size: 0.75rem; color: var(--muted); }
+    .meta-item .mv { font-size: 0.95rem; font-weight: 600; margin-top: 0.2rem; }
+
+    /* ─── ARCHITECTURE ────────────────────────────── */
+    .arch-diagram {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 2rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .arch-title { font-size: 0.9rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2rem; }
+    .arch-row { display: flex; justify-content: center; align-items: center; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+    .arch-box {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0.6rem 1.1rem;
+      font-size: 0.88rem;
+      text-align: center;
+      position: relative;
+    }
+    .arch-box.primary { border-color: var(--accent); color: var(--accent); }
+    .arch-box.green { border-color: var(--accent2); color: var(--accent2); }
+    .arch-box.orange { border-color: var(--accent4); color: var(--accent4); }
+    .arch-box.red { border-color: var(--accent3); color: var(--accent3); }
+    .arch-arrow { color: var(--muted); font-size: 1.2rem; }
+    .arch-label { font-size: 0.75rem; color: var(--muted); text-align: center; margin-top: 0.25rem; }
+
+    /* ─── MLFLOW PANEL ────────────────────────────── */
+    .experiment-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+    }
+    .experiment-table th {
+      text-align: left;
+      padding: 0.6rem 0.75rem;
+      color: var(--muted);
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      border-bottom: 1px solid var(--border);
+    }
+    .experiment-table td {
+      padding: 0.65rem 0.75rem;
+      border-bottom: 1px solid rgba(48,54,61,0.5);
+    }
+    .experiment-table tr:last-child td { border-bottom: none; }
+    .run-status { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 99px; font-size: 0.75rem; font-weight: 600; }
+    .run-status.finished { background: rgba(63,185,80,0.15); color: var(--pos); }
+    .run-status.running { background: rgba(250,204,21,0.15); color: var(--accent); }
+    .run-status.failed { background: rgba(248,81,73,0.15); color: var(--neg); }
+
+    /* ─── SCALING METRICS ─────────────────────────── */
+    .scaling-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; }
+    .scale-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+      text-align: center;
+    }
+    .scale-value { font-size: 2.2rem; font-weight: 700; color: var(--accent); display: block; }
+    .scale-label { color: var(--muted); font-size: 0.85rem; margin-top: 0.25rem; }
+    .scale-bar-wrap { margin-top: 0.75rem; background: var(--surface2); border-radius: 99px; height: 6px; overflow: hidden; }
+    .scale-bar { height: 100%; border-radius: 99px; background: var(--accent); transition: width 1s ease; }
+
+    /* ─── API REF ─────────────────────────────────── */
+    .endpoint {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 1rem;
+      overflow: hidden;
+    }
+    .endpoint-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 1rem 1.25rem;
+      cursor: pointer;
+      transition: background 0.15s;
+    }
+    .endpoint-header:hover { background: var(--surface2); }
+    .method-badge {
+      padding: 0.2rem 0.6rem;
+      border-radius: 4px;
+      font-size: 0.78rem;
+      font-weight: 700;
+    }
+    .method-badge.post { background: rgba(63,185,80,0.2); color: var(--pos); }
+    .method-badge.get { background: rgba(250,204,21,0.2); color: var(--accent); }
+    .endpoint-path { font-family: monospace; font-size: 0.9rem; }
+    .endpoint-desc { color: var(--muted); font-size: 0.85rem; margin-left: auto; }
+    .endpoint-body {
+      padding: 1rem 1.25rem;
+      border-top: 1px solid var(--border);
+      background: var(--surface2);
+      display: none;
+    }
+    .endpoint.open .endpoint-body { display: block; }
+    pre {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 1rem;
+      font-size: 0.85rem;
+      overflow-x: auto;
+      color: #adbac7;
+      margin-top: 0.5rem;
+    }
+    pre .key { color: #79c0ff; }
+    pre .string { color: #a5d6ff; }
+    pre .num { color: #ffa657; }
+    pre .bool { color: #f78166; }
+
+    /* ─── TECH STACK ──────────────────────────────── */
+    .stack-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 1rem; }
+    .stack-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1rem;
+      text-align: center;
+      transition: border-color 0.2s, transform 0.2s;
+    }
+    .stack-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .stack-icon { font-size: 2rem; display: block; margin-bottom: 0.5rem; }
+    .stack-name { font-size: 0.85rem; font-weight: 600; }
+    .stack-role { font-size: 0.75rem; color: var(--muted); margin-top: 0.2rem; }
+
+    /* ─── HOW IT WORKS ────────────────────────────── */
+    .steps { display: flex; flex-direction: column; gap: 1rem; }
+    .step {
+      display: flex;
+      gap: 1rem;
+      align-items: flex-start;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 1.25rem;
+    }
+    .step-num {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: rgba(250,204,21,0.15);
+      border: 1px solid var(--accent);
+      color: var(--accent);
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      font-size: 0.9rem;
+    }
+    .step-content h4 { font-size: 1rem; margin-bottom: 0.25rem; }
+    .step-content p { font-size: 0.88rem; color: var(--muted); }
+
+    /* ─── FOOTER ──────────────────────────────────── */
+    footer {
+      text-align: center;
+      padding: 2rem;
+      color: var(--muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border);
+      margin-top: 4rem;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+
+    /* ─── ANIMATIONS ──────────────────────────────── */
+    @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.5; } }
+    .pulsing { animation: pulse 1.5s ease-in-out infinite; }
+    @keyframes counter-up { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    .counter { animation: counter-up 0.6s ease forwards; }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="logo"><span class="logo-icon"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#facc15" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19v-6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2zm0 0V9a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v10m-6 0a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2m0 0V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2z"/></svg></span>MoodGuess<span>-MLOps</span></div>
+  <div class="nav-links">
+    <a href="#" onclick="showTab('demo');return false;">Demo</a>
+    <a href="#" onclick="showTab('architecture');return false;">Architecture</a>
+    <a href="#" onclick="showTab('mlflow');return false;">MLflow</a>
+    <a href="#" onclick="showTab('scaling');return false;">Scaling</a>
+    <a href="#" onclick="showTab('api');return false;">API</a>
+    <a href="#" onclick="showTab('stack');return false;">Stack</a>
+  </div>
+</nav>
+
+<!-- HERO -->
+<div class="hero">
+  <div class="hero-badge">Production MLOps on Kubernetes</div>
+  <h1>Sentiment Analysis<br>at <em>Cloud-Native</em> Scale</h1>
+  <p>FastAPI microservice with DistilBERT, ONNX inference, Redis caching, Kafka streaming, and full observability, deployed with Kubernetes + Helm.</p>
+  <div class="hero-metrics">
+    <div class="metric"><span class="value counter" data-target="45" data-suffix="ms">45ms</span><div class="label">P95 Latency</div></div>
+    <div class="metric"><span class="value counter" data-target="105700" data-suffix=" msg/s">105k msg/s</span><div class="label">Kafka Throughput</div></div>
+    <div class="metric"><span class="value counter" data-target="10">10</span><div class="label">Max K8s Pods</div></div>
+    <div class="metric"><span class="value counter" data-target="95" data-suffix="%">95%</span><div class="label">Test Coverage</div></div>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <button class="tab-btn active" onclick="showTab('demo')">Live Inference</button>
+  <button class="tab-btn" onclick="showTab('architecture')">K8s Architecture</button>
+  <button class="tab-btn" onclick="showTab('mlflow')">MLflow Tracker</button>
+  <button class="tab-btn" onclick="showTab('scaling')">Scaling Metrics</button>
+  <button class="tab-btn" onclick="showTab('api')">API Reference</button>
+  <button class="tab-btn" onclick="showTab('stack')">Tech Stack</button>
+</div>
+
+<!-- TAB: DEMO -->
+<div id="tab-demo" class="tab-panel active">
+  <div class="demo-grid">
+    <div class="panel">
+      <h3>Input Text</h3>
+      <textarea id="inputText" placeholder="Type any text to analyze sentiment...">This project demonstrates production-grade MLOps skills: Kubernetes deployment, automated retraining, and real-time sentiment analysis at scale!</textarea>
+      <div class="example-chips">
+        <span class="chip" onclick="setExample(this)">Outstanding product quality</span>
+        <span class="chip" onclick="setExample(this)">Terrible customer support experience</span>
+        <span class="chip" onclick="setExample(this)">The delivery was on time</span>
+        <span class="chip" onclick="setExample(this)">Worst purchase of my life</span>
+        <span class="chip" onclick="setExample(this)">I absolutely love this!</span>
+        <span class="chip" onclick="setExample(this)">Neither good nor bad</span>
+      </div>
+      <button class="analyze-btn" id="analyzeBtn" onclick="analyzeSentiment()">Analyze Sentiment</button>
+    </div>
+
+    <div class="panel">
+      <h3>Inference Result</h3>
+      <p style="font-size:0.8rem;color:var(--muted);margin-bottom:0.75rem;">
+        Calls the real API at <code>localhost:5080/predict</code>. Requires
+        <code>docker compose up</code> running locally, and this page served
+        over <code>http://</code> (not opened as a local file, browsers send
+        an untrusted <code>null</code> origin for <code>file://</code> pages,
+        which the API correctly rejects). Easiest: run
+        <code>python -m http.server</code> from this <code>demo/</code> folder
+        and open the printed URL. For the full interactive app (batch jobs,
+        live KPIs, feedback), see <code>frontend/</code> at
+        <!-- nosemgrep: html.security.plaintext-http-link.plaintext-http-link -->
+        <a href="http://localhost:5173" style="color:var(--accent)">localhost:5173</a>.
+      </p>
+      <div class="result-box" id="resultBox">
+
+        <div class="sentiment-badge pos" id="sentimentBadge" style="display:none">
+          <span class="sentiment-icon" id="sentimentIcon"><svg width="28" height="28" viewBox="0 0 28 28"><circle cx="14" cy="14" r="13" fill="#3fb950"/></svg></span>
+          <div>
+            <div class="sentiment-label" id="sentimentLabel">POSITIVE</div>
+            <div style="font-size:0.8rem;color:var(--muted)" id="metaModel2">mock-sentiment-model-v1</div>
+          </div>
+        </div>
+
+        <div id="emptyState" style="color:var(--muted);font-size:0.9rem;">
+          Click "Analyze Sentiment" to run a real prediction.
+        </div>
+
+        <div id="scoreSection" style="display:none">
+          <div class="confidence-label">Confidence Score: <strong id="scoreLabel">—</strong></div>
+          <div class="confidence-bar"><div class="confidence-fill" id="confFill" style="width:0%"></div></div>
+        </div>
+
+        <div class="meta-grid" id="metaGrid" style="display:none">
+          <div class="meta-item"><div class="mk">Latency</div><div class="mv" id="metaLatency">—</div></div>
+          <div class="meta-item"><div class="mk">Backend</div><div class="mv" id="metaBackend">—</div></div>
+          <div class="meta-item"><div class="mk">Cached</div><div class="mv" id="metaCached">—</div></div>
+          <div class="meta-item"><div class="mk">Model</div><div class="mv" style="font-size:0.75rem" id="metaModel">—</div></div>
+        </div>
+
+        <div id="errorState" style="display:none;color:var(--neg);font-size:0.85rem;"></div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: ARCHITECTURE -->
+<div id="tab-architecture" class="tab-panel">
+  <div class="arch-diagram">
+    <div class="arch-title">Kubernetes Cluster Architecture</div>
+
+    <div class="arch-row">
+      <div class="arch-box">Web Clients</div>
+      <div class="arch-box">Batch Jobs</div>
+      <div class="arch-box">API Consumers</div>
+    </div>
+    <div class="arch-row"><span class="arch-arrow">↓</span></div>
+    <div class="arch-row">
+      <div class="arch-box primary">Ingress Controller (nginx)</div>
+    </div>
+    <div class="arch-row"><span class="arch-arrow">↓</span></div>
+    <div class="arch-row">
+      <div class="arch-box primary">MoodGuess-MLOps Service<br><small>ClusterIP · Port 80</small></div>
+      <span class="arch-arrow">←→</span>
+      <div class="arch-box orange">HPA<br><small>2–10 pods</small></div>
+    </div>
+    <div class="arch-row"><span class="arch-arrow">↓</span></div>
+    <div class="arch-row">
+      <div class="arch-box green">Pod 1<br><small>FastAPI + ONNX</small></div>
+      <div class="arch-box green">Pod 2<br><small>FastAPI + ONNX</small></div>
+      <div class="arch-box green">Pod N<br><small>FastAPI + ONNX</small></div>
+    </div>
+    <div class="arch-row"><span class="arch-arrow">↓</span></div>
+    <div class="arch-row">
+      <div class="arch-box">Redis Cache<br><small>TTL prediction caching</small></div>
+      <div class="arch-box">Kafka<br><small>Streaming inference</small></div>
+      <div class="arch-box orange">MLflow<br><small>Model registry</small></div>
+      <div class="arch-box red">Prometheus<br><small>Metrics scraping</small></div>
+    </div>
+    <div class="arch-row"><span class="arch-arrow">↓</span></div>
+    <div class="arch-row">
+      <div class="arch-box red">Grafana Dashboards</div>
+      <div class="arch-box red">Alertmanager → Slack</div>
+    </div>
+  </div>
+
+  <div class="steps" style="margin-top:1.5rem;">
+    <div class="step">
+      <div class="step-num">1</div>
+      <div class="step-content">
+        <h4>Request enters Ingress Controller</h4>
+        <p>TLS termination, rate limiting, and routing rules applied at the nginx ingress. Traffic distributed via round-robin to the service endpoint.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">2</div>
+      <div class="step-content">
+        <h4>Kubernetes Service load-balances to pods</h4>
+        <p>ClusterIP service routes to healthy pods only. Liveness and readiness probes ensure traffic never hits an unready container.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">3</div>
+      <div class="step-content">
+        <h4>FastAPI pod checks Redis cache first</h4>
+        <p>If the exact text was seen recently (within TTL), the cached prediction is returned immediately, sub-5ms response with zero model execution.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">4</div>
+      <div class="step-content">
+        <h4>ONNX Runtime runs DistilBERT inference</h4>
+        <p>For cache misses, the optimised ONNX model runs tokenisation, forward pass, and softmax scoring. Result is written back to Redis with TTL.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">5</div>
+      <div class="step-content">
+        <h4>Prometheus scrapes /api/v1/metrics every 15s</h4>
+        <p>Request counts, latency histograms, model backend type, cache hit ratio, and pod resource usage are all exported as Prometheus metrics.</p>
+      </div>
+    </div>
+    <div class="step">
+      <div class="step-num">6</div>
+      <div class="step-content">
+        <h4>HPA adjusts pod count based on CPU/memory</h4>
+        <p>When average CPU crosses 70%, HPA adds pods (up to 10 max). Scale-down happens after a configurable cooldown window to prevent flapping.</p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: MLFLOW -->
+<div id="tab-mlflow" class="tab-panel">
+  <div class="panel" style="margin-bottom:1rem;">
+    <h3>MLflow Experiment: moodguess-distilbert</h3>
+    <table class="experiment-table">
+      <thead>
+        <tr>
+          <th>Run Name</th>
+          <th>Model</th>
+          <th>Backend</th>
+          <th>Accuracy</th>
+          <th>Avg Latency</th>
+          <th>Status</th>
+          <th>Registered</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>distilbert-onnx-v3</td>
+          <td>distilbert-base-uncased-finetuned-sst-2</td>
+          <td>ONNX</td>
+          <td>94.8%</td>
+          <td>4.7 ms</td>
+          <td><span class="run-status finished">Finished</span></td>
+          <td>Production</td>
+        </tr>
+        <tr>
+          <td>distilbert-pytorch-v2</td>
+          <td>distilbert-base-uncased-finetuned-sst-2</td>
+          <td>PyTorch</td>
+          <td>94.8%</td>
+          <td>45.2 ms</td>
+          <td><span class="run-status finished">Finished</span></td>
+          <td>Staging</td>
+        </tr>
+        <tr>
+          <td>bert-base-v1</td>
+          <td>bert-base-uncased</td>
+          <td>PyTorch</td>
+          <td>93.1%</td>
+          <td>112 ms</td>
+          <td><span class="run-status finished">Finished</span></td>
+          <td>Archived</td>
+        </tr>
+        <tr>
+          <td>roberta-experiment</td>
+          <td>roberta-base</td>
+          <td>ONNX</td>
+          <td>96.2%</td>
+          <td>18 ms</td>
+          <td><span class="run-status running">Running</span></td>
+          <td>Candidate</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="demo-grid">
+    <div class="panel">
+      <h3>Model Performance Comparison</h3>
+      <div style="margin-top:0.5rem;">
+        <div style="margin-bottom:1rem;">
+          <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.4rem;">
+            <span>DistilBERT ONNX</span><span style="color:var(--pos)">94.8% accuracy</span>
+          </div>
+          <div class="confidence-bar"><div class="confidence-fill" style="width:94.8%;background:var(--pos)"></div></div>
+        </div>
+        <div style="margin-bottom:1rem;">
+          <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.4rem;">
+            <span>DistilBERT PyTorch</span><span style="color:var(--pos)">94.8% accuracy</span>
+          </div>
+          <div class="confidence-bar"><div class="confidence-fill" style="width:94.8%;background:var(--pos)"></div></div>
+        </div>
+        <div style="margin-bottom:1rem;">
+          <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.4rem;">
+            <span>BERT Base</span><span style="color:var(--accent4)">93.1% accuracy</span>
+          </div>
+          <div class="confidence-bar"><div class="confidence-fill" style="width:93.1%;background:var(--accent4)"></div></div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.4rem;">
+            <span>RoBERTa (candidate)</span><span style="color:var(--accent)">96.2% accuracy</span>
+          </div>
+          <div class="confidence-bar"><div class="confidence-fill" style="width:96.2%;background:var(--accent)"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h3>Latency by Backend</h3>
+      <div style="margin-top:0.5rem;">
+        <div style="margin-bottom:1rem;">
+          <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.4rem;">
+            <span>ONNX (cached hit)</span><span style="color:var(--pos)">&lt; 5 ms</span>
+          </div>
+          <div class="confidence-bar"><div class="confidence-fill" style="width:5%;background:var(--pos)"></div></div>
+        </div>
+        <div style="margin-bottom:1rem;">
+          <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.4rem;">
+            <span>ONNX (cache miss)</span><span style="color:var(--pos)">18 ms</span>
+          </div>
+          <div class="confidence-bar"><div class="confidence-fill" style="width:18%;background:var(--pos)"></div></div>
+        </div>
+        <div style="margin-bottom:1rem;">
+          <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.4rem;">
+            <span>PyTorch (cache miss)</span><span style="color:var(--accent4)">45 ms</span>
+          </div>
+          <div class="confidence-bar"><div class="confidence-fill" style="width:45%;background:var(--accent4)"></div></div>
+        </div>
+        <div>
+          <div style="display:flex;justify-content:space-between;font-size:0.85rem;margin-bottom:0.4rem;">
+            <span>BERT Base</span><span style="color:var(--neg)">112 ms</span>
+          </div>
+          <div class="confidence-bar"><div class="confidence-fill" style="width:100%;background:var(--neg)"></div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: SCALING -->
+<div id="tab-scaling" class="tab-panel">
+  <p style="font-size:0.85rem;color:var(--muted);margin-bottom:1rem;">
+    Illustrative example of how the Horizontal Pod Autoscaler (below) reacts under load,
+    no live Kubernetes cluster is connected in this local demo. Buttons show the target
+    numbers the HPA config would converge toward at each traffic tier.
+  </p>
+  <div class="scaling-grid" style="margin-bottom:1.5rem;">
+    <div class="scale-card">
+      <span class="scale-value" id="podCount">3</span>
+      <div class="scale-label">Active Pods</div>
+      <div class="scale-bar-wrap"><div class="scale-bar" style="width:30%;background:var(--pos)" id="podBar"></div></div>
+    </div>
+    <div class="scale-card">
+      <span class="scale-value" id="cpuUtil">42%</span>
+      <div class="scale-label">Avg CPU Utilisation</div>
+      <div class="scale-bar-wrap"><div class="scale-bar" id="cpuBar" style="width:42%;background:var(--accent)"></div></div>
+    </div>
+    <div class="scale-card">
+      <span class="scale-value" id="rps">1,240</span>
+      <div class="scale-label">Requests / sec</div>
+      <div class="scale-bar-wrap"><div class="scale-bar" id="rpsBar" style="width:62%;background:var(--accent4)"></div></div>
+    </div>
+    <div class="scale-card">
+      <span class="scale-value" id="cacheHit">78%</span>
+      <div class="scale-label">Redis Cache Hit Rate</div>
+      <div class="scale-bar-wrap"><div class="scale-bar" id="cacheBar" style="width:78%;background:var(--pos)"></div></div>
+    </div>
+  </div>
+
+  <div style="display:flex;gap:1rem;flex-wrap:wrap;margin-bottom:1.5rem;">
+    <button class="analyze-btn" style="max-width:200px;" onclick="simulateLoad('low')">Simulate Low Load</button>
+    <button class="analyze-btn" style="max-width:200px;background:var(--accent4);" onclick="simulateLoad('medium')">Simulate Medium Load</button>
+    <button class="analyze-btn" style="max-width:200px;background:var(--neg);" onclick="simulateLoad('high')">Simulate High Load</button>
+  </div>
+
+  <div class="panel">
+    <h3>HPA Configuration (from k8s/scalability-config.yaml)</h3>
+    <pre><span class="key">apiVersion</span>: autoscaling/v2
+<span class="key">kind</span>: HorizontalPodAutoscaler
+<span class="key">spec</span>:
+  <span class="key">minReplicas</span>: <span class="num">2</span>
+  <span class="key">maxReplicas</span>: <span class="num">10</span>
+  <span class="key">metrics</span>:
+    - <span class="key">type</span>: Resource
+      <span class="key">resource</span>:
+        <span class="key">name</span>: <span class="string">cpu</span>
+        <span class="key">target</span>:
+          <span class="key">type</span>: Utilization
+          <span class="key">averageUtilization</span>: <span class="num">70</span>
+    - <span class="key">type</span>: Resource
+      <span class="key">resource</span>:
+        <span class="key">name</span>: <span class="string">memory</span>
+        <span class="key">target</span>:
+          <span class="key">type</span>: Utilization
+          <span class="key">averageUtilization</span>: <span class="num">80</span></pre>
+  </div>
+</div>
+
+<!-- TAB: API -->
+<div id="tab-api" class="tab-panel">
+
+  <div class="endpoint open" id="ep1">
+    <div class="endpoint-header" onclick="toggleEndpoint('ep1')">
+      <span class="method-badge post">POST</span>
+      <span class="endpoint-path">/api/v1/predict</span>
+      <span class="endpoint-desc">Real-time sentiment inference</span>
+    </div>
+    <div class="endpoint-body">
+      <p style="color:var(--muted);font-size:0.88rem;margin-bottom:0.5rem;">Request body:</p>
+      <pre>{
+  <span class="key">"text"</span>: <span class="string">"This product is absolutely outstanding!"</span>
+}</pre>
+      <p style="color:var(--muted);font-size:0.88rem;margin:0.75rem 0 0.5rem;">Response (200 OK):</p>
+      <pre>{
+  <span class="key">"label"</span>: <span class="string">"POSITIVE"</span>,
+  <span class="key">"score"</span>: <span class="num">0.9998</span>,
+  <span class="key">"inference_time_ms"</span>: <span class="num">4.7</span>,
+  <span class="key">"model_name"</span>: <span class="string">"distilbert-base-uncased-finetuned-sst-2-english"</span>,
+  <span class="key">"text_length"</span>: <span class="num">38</span>,
+  <span class="key">"backend"</span>: <span class="string">"onnx"</span>,
+  <span class="key">"cached"</span>: <span class="bool">false</span>
+}</pre>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep2">
+    <div class="endpoint-header" onclick="toggleEndpoint('ep2')">
+      <span class="method-badge post">POST</span>
+      <span class="endpoint-path">/api/v1/batch/predict</span>
+      <span class="endpoint-desc">Async batch inference</span>
+    </div>
+    <div class="endpoint-body">
+      <p style="color:var(--muted);font-size:0.88rem;margin-bottom:0.5rem;">Submit a batch of texts for background processing (85% faster than sequential):</p>
+      <pre>{
+  <span class="key">"texts"</span>: [
+    <span class="string">"First review text here"</span>,
+    <span class="string">"Second review text here"</span>,
+    <span class="string">"..."</span>
+  ],
+  <span class="key">"priority"</span>: <span class="string">"normal"</span>
+}</pre>
+      <p style="color:var(--muted);font-size:0.88rem;margin:0.75rem 0 0.5rem;">Response (202 Accepted):</p>
+      <pre>{
+  <span class="key">"job_id"</span>: <span class="string">"batch-7f3a9c12"</span>,
+  <span class="key">"status"</span>: <span class="string">"queued"</span>,
+  <span class="key">"estimated_time_ms"</span>: <span class="num">1500</span>
+}</pre>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep3">
+    <div class="endpoint-header" onclick="toggleEndpoint('ep3')">
+      <span class="method-badge get">GET</span>
+      <span class="endpoint-path">/api/v1/batch/results/{job_id}</span>
+      <span class="endpoint-desc">Retrieve batch results</span>
+    </div>
+    <div class="endpoint-body">
+      <pre>{
+  <span class="key">"job_id"</span>: <span class="string">"batch-7f3a9c12"</span>,
+  <span class="key">"status"</span>: <span class="string">"completed"</span>,
+  <span class="key">"results"</span>: [
+    {<span class="key">"label"</span>: <span class="string">"POSITIVE"</span>, <span class="key">"score"</span>: <span class="num">0.99</span>},
+    {<span class="key">"label"</span>: <span class="string">"NEGATIVE"</span>, <span class="key">"score"</span>: <span class="num">0.87</span>}
+  ],
+  <span class="key">"total_time_ms"</span>: <span class="num">1472</span>
+}</pre>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep4">
+    <div class="endpoint-header" onclick="toggleEndpoint('ep4')">
+      <span class="method-badge get">GET</span>
+      <span class="endpoint-path">/api/v1/metrics</span>
+      <span class="endpoint-desc">Prometheus metrics</span>
+    </div>
+    <div class="endpoint-body">
+      <pre>sentiment_requests_total{method="POST",backend="onnx"} 14823
+sentiment_inference_duration_seconds{quantile="0.95"} 0.0047
+sentiment_cache_hits_total 11562
+sentiment_cache_misses_total 3261
+sentiment_model_backend{name="onnx"} 1</pre>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep5">
+    <div class="endpoint-header" onclick="toggleEndpoint('ep5')">
+      <span class="method-badge get">GET</span>
+      <span class="endpoint-path">/api/v1/model-info</span>
+      <span class="endpoint-desc">Loaded model metadata</span>
+    </div>
+    <div class="endpoint-body">
+      <pre>{
+  <span class="key">"model_name"</span>: <span class="string">"distilbert-base-uncased-finetuned-sst-2-english"</span>,
+  <span class="key">"backend"</span>: <span class="string">"onnx"</span>,
+  <span class="key">"version"</span>: <span class="string">"v3"</span>,
+  <span class="key">"mlflow_run_id"</span>: <span class="string">"abc123"</span>,
+  <span class="key">"labels"</span>: [<span class="string">"POSITIVE"</span>, <span class="string">"NEGATIVE"</span>],
+  <span class="key">"max_input_length"</span>: <span class="num">10000</span>
+}</pre>
+    </div>
+  </div>
+
+  <div class="endpoint" id="ep6">
+    <div class="endpoint-header" onclick="toggleEndpoint('ep6')">
+      <span class="method-badge get">GET</span>
+      <span class="endpoint-path">/api/v1/health</span>
+      <span class="endpoint-desc">Liveness + readiness probe</span>
+    </div>
+    <div class="endpoint-body">
+      <pre>{
+  <span class="key">"status"</span>: <span class="string">"healthy"</span>,
+  <span class="key">"model_loaded"</span>: <span class="bool">true</span>,
+  <span class="key">"redis_connected"</span>: <span class="bool">true</span>,
+  <span class="key">"uptime_seconds"</span>: <span class="num">86400</span>
+}</pre>
+    </div>
+  </div>
+
+</div>
+
+<!-- TAB: STACK -->
+<div id="tab-stack" class="tab-panel">
+  <div class="stack-grid">
+    <div class="stack-card"><span class="stack-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><circle cx="9" cy="10" r="1.2" fill="currentColor" stroke="none"/><circle cx="15" cy="10" r="1.2" fill="currentColor" stroke="none"/><path d="M8 15c1 1 2.5 1.5 4 1.5s3-.5 4-1.5"/></svg></span><div class="stack-name">HuggingFace</div><div class="stack-role">DistilBERT model</div></div>
+    <div class="stack-card"><span class="stack-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z"/></svg></span><div class="stack-name">ONNX Runtime</div><div class="stack-role">Inference optimisation</div></div>
+    <div class="stack-card"><span class="stack-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c1 3-3 4-3 8a3 3 0 0 0 6 0c0-1-1-2-1-2 1 1 3 3 3 6a6 6 0 0 1-12 0c0-4 3-6 3-9 0-1.5 1-2.5 4-3z"/></svg></span><div class="stack-name">PyTorch</div><div class="stack-role">Model training backend</div></div>
+    <div class="stack-card"><span class="stack-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2c3 1 5 4 5 8 0 4-2 7-5 12-3-5-5-8-5-12 0-4 2-7 5-8z"/><circle cx="12" cy="9" r="2"/><path d="M8 17l-3 3M16 17l3 3"/></svg></span><div class="stack-name">FastAPI</div><div class="stack-role">Async REST API</div></div>
+    <div class="stack-card"><span class="stack-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 5v10l-8 5-8-5V7l8-5z"/><circle cx="12" cy="12" r="3"/></svg></span><div class="stack-name">Kubernetes</div><div class="stack-role">Container orchestration</div></div>
+    <div class="stack-card"><span class="stack-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15h16l-2 4H6l-2-4z"/><path d="M12 3v12M12 3c3 1 5 5 5 9M8 12c0-4 2-8 4-9"/></svg></span><div class="stack-name">Helm</div><div class="stack-role">K8s package manager</div></div>
+    <div class="stack-card"><span class="stack-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="10" width="18" height="7" rx="2"/><path d="M6 10V7h3v3M10 10V7h3v3M14 10V7h3v3"/></svg></span><div class="stack-name">Docker</div><div class="stack-role">Multi-stage builds</div></div>
+    <div class="stack-card"><span class="stack-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg></span><div class="stack-name">MLflow</div><div class="stack-role">Model registry</div></div>
+    <div class="stack-card"><span class="stack-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6"/><path d="M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></svg></span><div class="stack-name">Redis</div><div class="stack-role">Prediction caching</div></div>
+    <div class="stack-card"><span class="stack-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l9 6 9-6"/><rect x="3" y="5" width="18" height="14" rx="2"/></svg></span><div class="stack-name">Kafka</div><div class="stack-role">Streaming inference</div></div>
+    <div class="stack-card"><span class="stack-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/><path d="M15 7h6v6"/></svg></span><div class="stack-name">Prometheus</div><div class="stack-role">Metrics scraping</div></div>
+    <div class="stack-card"><span class="stack-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7l6 6 4-4 8 8"/><path d="M15 17h6v-6"/></svg></span><div class="stack-name">Grafana</div><div class="stack-role">Dashboards & alerts</div></div>
+    <div class="stack-card"><span class="stack-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/><circle cx="12" cy="15.5" r="1.3" fill="currentColor" stroke="none"/></svg></span><div class="stack-name">Vault</div><div class="stack-role">Secrets management</div></div>
+    <div class="stack-card"><span class="stack-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.5 2.5 4 6 4 9s-1.5 6.5-4 9c-2.5-2.5-4-6-4-9s1.5-6.5 4-9z"/></svg></span><div class="stack-name">Terraform</div><div class="stack-role">Infrastructure as Code</div></div>
+    <div class="stack-card"><span class="stack-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9a8 8 0 0 1 14-4.5M20 5v5h-5"/><path d="M20 15a8 8 0 0 1-14 4.5M4 19v-5h5"/></svg></span><div class="stack-name">GitHub Actions</div><div class="stack-role">CI/CD pipeline</div></div>
+    <div class="stack-card"><span class="stack-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 3v6c0 5-3.5 8.5-8 11-4.5-2.5-8-6-8-11V5l8-3z"/><path d="M9 12l2 2 4-4"/></svg></span><div class="stack-name">Trivy</div><div class="stack-role">Container security scan</div></div>
+  </div>
+</div>
+
+<!-- FOOTER -->
+<footer>
+  Built by <a href="https://github.com/Hamilas" target="_blank">Rayen Lassoued</a> &nbsp;·&nbsp;
+  <a href="https://github.com/Hamilas" target="_blank">github.com/Hamilas</a> &nbsp;·&nbsp;
+  <a href="https://www.linkedin.com/in/lassoued-rayen/" target="_blank">https://www.linkedin.com/in/lassoued-rayen/</a>
+</footer>
+
+<script>
+  // ─── TAB SWITCHING ─────────────────────────────────
+  function showTab(id) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + id).classList.add('active');
+    const idx = ['demo','architecture','mlflow','scaling','api','stack'].indexOf(id);
+    document.querySelectorAll('.tab-btn')[idx].classList.add('active');
+  }
+
+  // ─── ENDPOINT TOGGLE ───────────────────────────────
+  function toggleEndpoint(id) {
+    document.getElementById(id).classList.toggle('open');
+  }
+
+  // ─── EXAMPLE TEXT ──────────────────────────────────
+  function setExample(el) {
+    document.getElementById('inputText').value = el.textContent.trim();
+  }
+
+  // ─── SENTIMENT ANALYSIS (real API call, not simulated) ──
+  const API_BASE_URL = 'http://localhost:5080';
+  const API_KEY = 'MoodGuessDemo2024';
+  const ICONS = { POSITIVE: '<svg width="28" height="28" viewBox="0 0 28 28"><circle cx="14" cy="14" r="13" fill="#3fb950"/></svg>', NEGATIVE: '<svg width="28" height="28" viewBox="0 0 28 28"><circle cx="14" cy="14" r="13" fill="#f85149"/></svg>' };
+  const CLASSES = { POSITIVE: 'pos', NEGATIVE: 'neg' };
+
+  async function analyzeSentiment() {
+    const text = document.getElementById('inputText').value.trim();
+    if (!text) return;
+    const btn = document.getElementById('analyzeBtn');
+    btn.classList.add('loading');
+    btn.textContent = 'Analyzing...';
+    document.getElementById('errorState').style.display = 'none';
+    document.getElementById('emptyState').style.display = 'none';
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/predict`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-API-Key': API_KEY },
+        body: JSON.stringify({ text }),
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.detail || `HTTP ${response.status}`);
+
+      const cls = CLASSES[data.label] || 'neu';
+      const badge = document.getElementById('sentimentBadge');
+      badge.className = 'sentiment-badge ' + cls;
+      badge.style.display = 'flex';
+      document.getElementById('sentimentIcon').innerHTML = ICONS[data.label] || '<svg width="28" height="28" viewBox="0 0 28 28"><circle cx="14" cy="14" r="13" fill="#ffa657"/></svg>';
+      document.getElementById('sentimentLabel').textContent = data.label;
+      document.getElementById('metaModel2').textContent = data.model_name;
+      document.getElementById('scoreLabel').textContent = (data.score * 100).toFixed(1) + '%';
+      document.getElementById('confFill').style.width = (data.score * 100) + '%';
+      document.getElementById('confFill').style.background = cls === 'pos' ? 'var(--pos)' : 'var(--neg)';
+      document.getElementById('metaLatency').textContent = data.inference_time_ms.toFixed(2) + ' ms';
+      document.getElementById('metaBackend').textContent = data.backend;
+      document.getElementById('metaCached').textContent = data.cached ? 'Yes' : 'No';
+      document.getElementById('metaModel').textContent = data.model_name;
+      document.getElementById('scoreSection').style.display = 'block';
+      document.getElementById('metaGrid').style.display = 'grid';
+    } catch (err) {
+      const errorBox = document.getElementById('errorState');
+      errorBox.textContent = `Couldn't reach the API at ${API_BASE_URL}. Make sure "docker compose up" is running locally, then retry. (${err.message})`;
+      errorBox.style.display = 'block';
+    } finally {
+      btn.classList.remove('loading');
+      btn.textContent = 'Analyze Sentiment';
+    }
+  }
+
+  // ─── SCALING SIMULATION ────────────────────────────
+  function simulateLoad(level) {
+    const configs = {
+      low:    { pods: 2,  cpu: '28%', rps: '340',   cache: '82%', podW: 20, cpuW: 28, rpsW: 17, cacheW: 82, podBar: 'var(--pos)', cpuBar: 'var(--pos)' },
+      medium: { pods: 4,  cpu: '55%', rps: '1,240', cache: '78%', podW: 40, cpuW: 55, rpsW: 62, cacheW: 78, podBar: 'var(--accent)', cpuBar: 'var(--accent)' },
+      high:   { pods: 9,  cpu: '72%', rps: '3,800', cache: '65%', podW: 90, cpuW: 72, rpsW: 95, cacheW: 65, podBar: 'var(--neg)', cpuBar: 'var(--neg)' },
+    };
+    const c = configs[level];
+    document.getElementById('podCount').textContent = c.pods;
+    document.getElementById('cpuUtil').textContent = c.cpu;
+    document.getElementById('rps').textContent = c.rps;
+    document.getElementById('cacheHit').textContent = c.cache;
+    setBar('podBar', c.podW, c.podBar);
+    setBar('cpuBar', c.cpuW, c.cpuBar);
+    setBar('rpsBar', c.rpsW, 'var(--accent4)');
+    setBar('cacheBar', c.cacheW, 'var(--pos)');
+  }
+  function setBar(id, pct, color) {
+    const el = document.getElementById(id);
+    el.style.width = pct + '%';
+    el.style.background = color;
+  }
+
+  // ─── ANIMATED COUNTERS ─────────────────────────────
+  function animateCounter(el) {
+    const target = parseInt(el.dataset.target, 10);
+    const suffix = el.dataset.suffix || '';
+    const dur = 1200;
+    const step = 16;
+    const steps = dur / step;
+    let cur = 0;
+    const inc = target / steps;
+    const timer = setInterval(() => {
+      cur += inc;
+      if (cur >= target) { cur = target; clearInterval(timer); }
+      const display = cur >= 1000 ? Math.round(cur).toLocaleString() : Math.round(cur);
+      el.textContent = display + suffix;
+    }, step);
+  }
+
+  document.querySelectorAll('.counter').forEach(el => {
+    const orig = el.textContent;
+    if (el.dataset.target) {
+      el.textContent = '0';
+      setTimeout(() => animateCounter(el), 300);
+    }
+  });
+</script>
+
+</body>
+</html>

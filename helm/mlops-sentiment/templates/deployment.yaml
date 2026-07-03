@@ -1,0 +1,197 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "mlops-sentiment.fullname" . }}
+  labels:
+    {{- include "mlops-sentiment.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.deployment.replicaCount }}
+  strategy:
+    {{- toYaml .Values.deployment.strategy | nindent 4 }}
+  selector:
+    matchLabels:
+      {{- include "mlops-sentiment.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8000"
+        prometheus.io/path: "/metrics"
+        {{- if .Values.istio.enabled }}
+        sidecar.istio.io/inject: "true"
+        {{- end }}
+        {{- with .Values.istio.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "mlops-sentiment.selectorLabels" . | nindent 8 }}
+        version: {{ .Chart.AppVersion }}
+        {{- if .Values.gpu.enabled }}
+        gpu-enabled: "true"
+        gpu-type: {{ .Values.gpu.type | quote }}
+        {{- end }}
+    spec:
+      {{- with .Values.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "mlops-sentiment.serviceAccountName" . }}
+      securityContext:
+        {{- if .Values.gpu.enabled }}
+        # Relaxed security context for GPU access
+        runAsNonRoot: false
+        runAsUser: 0
+        runAsGroup: 0
+        fsGroup: 0
+        {{- else }}
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+        {{- end }}
+      {{- if .Values.modelPersistence.initContainer.enabled }}
+      initContainers:
+        - name: model-preloader
+          image: {{ .Values.modelPersistence.initContainer.image }}
+          imagePullPolicy: {{ .Values.modelPersistence.initContainer.pullPolicy }}
+          command: ["python3", "/scripts/init-models.py"]
+          env:
+            - name: MODEL_NAME
+              value: {{ .Values.modelPersistence.initContainer.modelName | quote }}
+            - name: MODEL_CACHE_DIR
+              value: "/models"
+            - name: ENABLE_ONNX_OPTIMIZATION
+              value: {{ .Values.modelPersistence.initContainer.enableOnnx | quote }}
+          volumeMounts:
+            - name: model-cache
+              mountPath: /models
+            - name: init-scripts
+              mountPath: /scripts
+          resources:
+            {{- toYaml .Values.modelPersistence.initContainer.resources | nindent 12 }}
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- if .Values.gpu.enabled }}
+            # Relaxed container security for GPU
+            allowPrivilegeEscalation: true
+            runAsNonRoot: false
+            runAsUser: 0
+            {{- else }}
+            {{- toYaml .Values.securityContext | nindent 12 }}
+            {{- end }}
+          image: {{ include "mlops-sentiment.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          env:
+            {{- include "mlops-sentiment.env" . | nindent 12 }}
+            {{- if .Values.gpu.enabled }}
+            {{- range $key, $value := .Values.gpu.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- if .Values.gpu.multiGpu.enabled }}
+            - name: MULTI_GPU_ENABLED
+              value: "true"
+            - name: GPU_COUNT
+              value: {{ .Values.gpu.multiGpu.gpusPerPod | quote }}
+            {{- end }}
+            {{- end }}
+          livenessProbe:
+            {{- if .Values.gpu.enabled }}
+            {{- toYaml .Values.gpu.healthChecks.livenessProbe | nindent 12 }}
+            {{- else }}
+            {{- toYaml .Values.deployment.livenessProbe | nindent 12 }}
+            {{- end }}
+          readinessProbe:
+            {{- if .Values.gpu.enabled }}
+            {{- toYaml .Values.gpu.healthChecks.readinessProbe | nindent 12 }}
+            {{- else }}
+            {{- toYaml .Values.deployment.readinessProbe | nindent 12 }}
+            {{- end }}
+          {{- if .Values.gpu.enabled }}
+          startupProbe:
+            {{- toYaml .Values.gpu.healthChecks.startupProbe | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- if .Values.gpu.enabled }}
+            limits:
+              cpu: {{ .Values.gpu.resources.limits.cpu }}
+              memory: {{ .Values.gpu.resources.limits.memory }}
+              {{ .Values.gpu.vendor }}.com/gpu: {{ if .Values.gpu.multiGpu.enabled }}{{ .Values.gpu.multiGpu.gpusPerPod }}{{ else }}{{ .Values.gpu.count }}{{ end }}
+            requests:
+              cpu: {{ .Values.gpu.resources.requests.cpu }}
+              memory: {{ .Values.gpu.resources.requests.memory }}
+              {{ .Values.gpu.vendor }}.com/gpu: {{ if .Values.gpu.multiGpu.enabled }}{{ .Values.gpu.multiGpu.gpusPerPod }}{{ else }}{{ .Values.gpu.count }}{{ end }}
+            {{- else }}
+            {{- toYaml .Values.deployment.resources | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: cache
+              mountPath: /app/.cache
+            {{- if .Values.modelPersistence.enabled }}
+            - name: model-cache
+              mountPath: /models
+              readOnly: false
+            {{- end }}
+            {{- if and .Values.gpu.enabled .Values.gpu.volumes.sharedMemory.enabled }}
+            - name: shm
+              mountPath: /dev/shm
+            {{- end }}
+            {{- if and .Values.gpu.enabled .Values.gpu.volumes.gpuCache.enabled }}
+            - name: gpu-cache
+              mountPath: /root/.cache
+            {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: cache
+          emptyDir: {}
+        {{- if .Values.modelPersistence.enabled }}
+        - name: model-cache
+          persistentVolumeClaim:
+            claimName: {{ include "mlops-sentiment.fullname" . }}-model-cache
+        {{- end }}
+        {{- if .Values.modelPersistence.initContainer.enabled }}
+        - name: init-scripts
+          configMap:
+            name: {{ include "mlops-sentiment.fullname" . }}-model-init-script
+            defaultMode: 0755
+        {{- end }}
+        {{- if and .Values.gpu.enabled .Values.gpu.volumes.sharedMemory.enabled }}
+        - name: shm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ .Values.gpu.volumes.sharedMemory.sizeLimit }}
+        {{- end }}
+        {{- if and .Values.gpu.enabled .Values.gpu.volumes.gpuCache.enabled }}
+        - name: gpu-cache
+          emptyDir:
+            sizeLimit: {{ .Values.gpu.volumes.gpuCache.sizeLimit }}
+        {{- end }}
+      {{- if .Values.gpu.enabled }}
+      nodeSelector:
+        {{- toYaml .Values.gpu.nodeSelector | nindent 8 }}
+      affinity:
+        {{- toYaml .Values.gpu.affinity | nindent 8 }}
+      tolerations:
+        {{- toYaml .Values.gpu.tolerations | nindent 8 }}
+      {{- else }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- end }}

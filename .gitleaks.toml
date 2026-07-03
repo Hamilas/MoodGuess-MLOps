@@ -1,0 +1,26 @@
+title = "gitleaks config for MoodGuess-MLOps"
+
+[extend]
+# Keep gitleaks' full default ruleset; only add narrow allowlisting on top.
+useDefault = true
+
+[allowlist]
+description = "Known false positives confirmed by manual review"
+
+regexes = [
+  # Documented, non-sensitive local-development placeholder credential
+  # (MLOPS_API_KEY / VITE_API_KEY in docker-compose.yml, referenced in
+  # README.md). It does not protect any real service — the local dev
+  # stack runs the mock sentiment backend by default.
+  '''MoodGuessDemo2024''',
+]
+
+paths = [
+  # These files implement the Vault secrets-management client/tooling
+  # itself. Their variable names (secret_path, secret_data, etc.) trip
+  # gitleaks' generic-api-key heuristic even though no literal credential
+  # is present — confirmed by manual review of every flagged line.
+  '''app/core/secrets\.py''',
+  '''scripts/ops/rotate-secrets\.py''',
+  '''scripts/ops/migrate-secrets-to-vault\.py''',
+]

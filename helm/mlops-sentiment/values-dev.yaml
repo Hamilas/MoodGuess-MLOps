@@ -1,0 +1,83 @@
+# Development environment values
+# Overrides for dev environment
+
+# Application settings
+deployment:
+  replicaCount: 1
+
+  resources:
+    # Development-optimized resources (minimal for local testing):
+    # - CPU requests: Average usage for bin-packing
+    # - CPU limits: P95 + buffer for bursts
+    # - Memory: Equal requests/limits to prevent OOM kills
+    limits:
+      cpu: 500m       # P95 usage + buffer for bursts
+      memory: 512Mi   # Equal to requests to avoid OOM kills
+    requests:
+      cpu: 200m       # Average usage (~40% of limit) for bin-packing
+      memory: 512Mi   # Equal to limits for stable scheduling
+
+  env:
+    MLOPS_DEBUG: "true"
+    MLOPS_LOG_LEVEL: "DEBUG"
+    MLOPS_ENABLE_METRICS: "true"
+
+# Service configuration
+service:
+  type: NodePort
+
+# Ingress
+ingress:
+  enabled: true
+  hosts:
+    - host: mlops-sentiment-dev.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: mlops-sentiment-dev-tls
+      hosts:
+        - mlops-sentiment-dev.local
+
+# HPA disabled for dev
+hpa:
+  enabled: false
+
+# Monitoring with reduced retention
+prometheus:
+  enabled: true
+  server:
+    retention: "7d"
+    persistentVolume:
+      size: 5Gi
+
+grafana:
+  enabled: true
+  adminPassword: "devpassword"
+  persistence:
+    size: 2Gi
+
+# Network policy less restrictive for dev
+networkPolicy:
+  enabled: true
+  egress:
+    # Allow all egress for development
+    - to: []
+      ports:
+        - protocol: TCP
+          port: 80
+        - protocol: TCP
+          port: 443
+        - protocol: UDP
+          port: 53
+
+# Enable Istio mesh for advanced resilience in dev
+istio:
+  enabled: true
+  enableNamespaceInjection: true
+  http:
+    timeout: 3s
+    retries:
+      attempts: 2
+      perTryTimeout: 1s
+      retryOn: "5xx,connect-failure,refused-stream,reset"

@@ -1,0 +1,55 @@
+# Lightweight requirements for local development with mock model
+# No heavy ML dependencies (torch, transformers, onnxruntime)
+# Suitable for Docker local dev with MLOPS_MODEL_BACKEND=mock
+
+# Web Framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+orjson>=3.9.10
+
+# Data Validation & Configuration
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+python-dotenv==1.0.0
+
+# HTTP Clients
+requests==2.31.0
+httpx==0.25.1
+
+# Logging & Monitoring
+structlog==23.2.0
+prometheus-client==0.19.0
+
+# Secrets Management (optional - graceful fallback without Vault)
+hvac>=1.2.0
+
+# Redis Caching (client only)
+redis==5.0.1
+hiredis==2.2.3
+
+# System Monitoring
+psutil==5.9.6
+
+# Feature Engineering & NLP (lightweight)
+nltk==3.8.1
+textstat==0.7.3
+
+# Distributed Tracing (OpenTelemetry)
+opentelemetry-api==1.21.0
+opentelemetry-sdk==1.21.0
+opentelemetry-instrumentation-fastapi==0.42b0
+opentelemetry-instrumentation-httpx==0.42b0
+opentelemetry-instrumentation-requests==0.42b0
+opentelemetry-instrumentation-redis==0.42b0
+opentelemetry-instrumentation-logging==0.42b0
+opentelemetry-exporter-jaeger==1.21.0
+opentelemetry-exporter-zipkin==1.21.0
+opentelemetry-exporter-otlp==1.21.0
+
+# MLflow (lightweight core)
+mlflow==2.9.2
+
+# Data processing (lightweight)
+scipy==1.11.4
+pandas==2.1.4
+pyarrow==14.0.1
